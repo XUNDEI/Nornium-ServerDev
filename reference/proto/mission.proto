@@ -1,0 +1,15 @@
+// Reconstructed from proto.pb (Nornium/GHS client mission.proto)
+syntax = "proto3";
+package ghs;
+import "universe_common.proto";
+
+message NtfMissionInfo {
+  ghs.MissionInfo mission_info = 1;
+}
+
+message NtfMissionResult {
+  uint64 mission_uuid = 1;
+  uint32 mission_result = 2;
+  uint32 mission_end_turn = 3;
+  uint32 mission_end_step = 4;
+}

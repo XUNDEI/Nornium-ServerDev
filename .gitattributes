@@ -1,0 +1,16 @@
+# Normalize text files across platforms; keep known binaries untouched.
+* text=auto
+
+*.pak binary
+*.pb binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.exe binary
+*.dll binary
+
+# The protocol/client Lua sources are byte-sensitive reference material.
+reference/client_lua/* linguist-generated=true
+reference/gamedata/* linguist-generated=true

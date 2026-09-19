@@ -1,0 +1,105 @@
+// Reconstructed from proto.pb (Nornium/GHS client mall_list.proto)
+syntax = "proto3";
+package ghs;
+
+message MallItemInfo {
+  uint32 mall_item_id = 1;
+}
+
+message MallPurchaseLimitInfo {
+  uint32 mall_item_id = 1;
+  uint32 purchase_times = 2;
+  uint64 refresh_seconds = 3;
+}
+
+message MallInfo {
+  uint32 mall_id = 1;
+  repeated ghs.MallItemInfo mall_item_infos = 2;
+  uint64 last_auto_refresh_seconds = 3;
+  repeated ghs.MallPurchaseLimitInfo mall_purchase_limit_infos = 4;
+}
+
+message MonthCardInfo {
+  uint64 expire_seconds = 1;
+  uint64 last_tick_seconds = 2;
+}
+
+message ChargePointInfo {
+  uint32 charge_point = 1;
+  repeated uint32 received_charge_point_ids = 2;
+}
+
+message MallListInfo {
+  repeated ghs.MallInfo mall_infos = 1;
+  ghs.MonthCardInfo month_card_info = 2;
+  ghs.ChargePointInfo charge_point_info = 3;
+}
+
+message ReqMallList {
+}
+
+message ResMallList {
+enum ResultType {
+    OK = 0;
+    MALL_LIST_LOADED = 1;
+}
+  ghs.MallListInfo mall_list_info = 1;
+}
+
+message ReqMallBuy {
+  uint32 mall_id = 1;
+  uint32 mall_item_id = 2;
+  uint32 mall_item_count = 3;
+  uint64 last_auto_refresh_seconds = 4;
+  string access_token = 101;
+  uint64 steam_id = 102;
+  string steam_current_game_language = 103;
+}
+
+message ResMallBuy {
+enum ResultType {
+    OK = 0;
+    NO_MALL = 1;
+    NO_MALL_ITEM = 2;
+    MALL_REFRESHED = 3;
+    PURCHASE_LIMIT = 4;
+    RES_NOT_ENOUGH = 5;
+    ITEM_NOT_USEFUL = 6;
+    STEAM_GET_USER_INFO_FAILED = 101;
+    STEAM_USER_LOCKED_FROM_PURCHASING = 102;
+    STEAM_INIT_TXN_FAILED = 103;
+    STEAM_GET_USER_INFO_FAILED_HTTP_FAILED = 111;
+    STEAM_INIT_TXN_FAILED_HTTP_FAILED = 113;
+    STEAM_GET_USER_INFO_FAILED_JSON_FAILED = 121;
+    STEAM_INIT_TXN_FAILED_JSON_FAILED = 123;
+}
+  uint64 game_order_id = 1;
+}
+
+message ReqMallReceiveMonthCard {
+}
+
+message ResMallReceiveMonthCard {
+enum ResultType {
+    OK = 0;
+    NO_CARD = 1;
+    ALREADY_RECEIVED = 2;
+}
+}
+
+message ReqMallReceiveChargePointReward {
+  uint32 charge_point_id = 1;
+}
+
+message ResMallReceiveChargePointReward {
+enum ResultType {
+    OK = 0;
+    CHARGE_POINT_NOT_ENOUGH = 1;
+    ALREADY_RECEIVED = 2;
+}
+}
+
+message NtfMallInfo {
+  repeated ghs.MallInfo mall_infos = 1;
+  ghs.MonthCardInfo month_card_info = 2;
+}

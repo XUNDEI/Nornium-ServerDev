@@ -1,0 +1,24 @@
+// Reconstructed from proto.pb (Nornium/GHS client event.proto)
+syntax = "proto3";
+package ghs;
+import "universe_common.proto";
+
+message ReqChooseEventOption {
+  uint64 event_uuid = 1;
+  uint32 index = 2;
+}
+
+message ResChooseEventOption {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_EVENT = 2;
+    NOT_CHOOSING = 3;
+    INDEX_OUT_OF_RANGE = 4;
+    NOT_ENABLED = 5;
+}
+}
+
+message NtfEventInfo {
+  ghs.EventInfo event_info = 1;
+}

@@ -1,0 +1,46 @@
+// Reconstructed from proto.pb (Nornium/GHS client hard_level.proto)
+syntax = "proto3";
+package ghs;
+import "common_fight.proto";
+
+message HardLevelInfo {
+  uint32 passed_level_id = 1;
+  repeated bool stars = 2;
+  ghs.FightInfo fight_info = 3;
+}
+
+message ReqHardLevel {
+}
+
+message ResHardLevel {
+enum ResultType {
+    OK = 0;
+    HARD_LEVEL_LOADED = 1;
+}
+  ghs.HardLevelInfo hard_level_info = 1;
+}
+
+message ReqHardLevelFight {
+  uint32 fight_level_id = 1;
+}
+
+message ResHardLevelFight {
+enum ResultType {
+    OK = 0;
+    LEVEL_LOCKED = 1;
+}
+  uint64 fight_uuid = 1;
+}
+
+message ReqCompleteHardLevelFight {
+  bool result = 1;
+  repeated bool stars = 2;
+}
+
+message ResCompleteHardLevelFight {
+enum ResultType {
+    OK = 0;
+    NO_FIGHT = 1;
+    NOT_FIGHTING = 2;
+}
+}

@@ -1,0 +1,73 @@
+// Reconstructed from proto.pb (Nornium/GHS client shop_list.proto)
+syntax = "proto3";
+package ghs;
+
+message ShopItemInfo {
+  uint32 shop_item_id = 1;
+  uint32 discount = 2;
+}
+
+message PurchaseLimitInfo {
+  uint32 shop_item_id = 1;
+  uint32 purchase_times = 2;
+  uint64 refresh_seconds = 3;
+}
+
+message ShopInfo {
+  uint32 shop_id = 1;
+  repeated ghs.ShopItemInfo shop_item_infos = 2;
+  uint64 last_auto_refresh_seconds = 3;
+  uint64 manual_refresh_seconds = 4;
+  uint32 manual_refresh_times = 5;
+  repeated ghs.PurchaseLimitInfo purchase_limit_infos = 6;
+}
+
+message ShopListInfo {
+  repeated ghs.ShopInfo shop_infos = 1;
+}
+
+message ReqShopList {
+}
+
+message ResShopList {
+enum ResultType {
+    OK = 0;
+    SHOP_LIST_LOADED = 1;
+}
+  ghs.ShopListInfo shop_list_info = 1;
+}
+
+message ReqShopRefresh {
+  uint32 shop_id = 1;
+}
+
+message ResShopRefresh {
+enum ResultType {
+    OK = 0;
+    NO_SHOP = 1;
+    REFRESH_LIMIT = 2;
+    RES_NOT_ENOUGH = 3;
+}
+}
+
+message ReqShopBuy {
+  uint32 shop_id = 1;
+  uint32 shop_item_id = 2;
+  uint32 shop_item_count = 3;
+  uint64 last_auto_refresh_seconds = 4;
+}
+
+message ResShopBuy {
+enum ResultType {
+    OK = 0;
+    NO_SHOP = 1;
+    NO_SHOP_ITEM = 2;
+    SHOP_REFRESHED = 3;
+    PURCHASE_LIMIT = 4;
+    RES_NOT_ENOUGH = 5;
+}
+}
+
+message NtfShopInfo {
+  repeated ghs.ShopInfo shop_infos = 1;
+}

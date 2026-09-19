@@ -1,0 +1,9 @@
+// Reconstructed from proto.pb (Nornium/GHS client common_mission.proto)
+syntax = "proto3";
+package ghs;
+
+message CommonMissionInfo {
+  uint32 mission_id = 1;
+  repeated uint32 mission_record_args = 2;
+  bool completed = 3;
+}

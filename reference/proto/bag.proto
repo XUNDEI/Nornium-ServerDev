@@ -1,0 +1,193 @@
+// Reconstructed from proto.pb (Nornium/GHS client bag.proto)
+syntax = "proto3";
+package ghs;
+import "item.proto";
+
+message BagInfo {
+  repeated ghs.ItemInfo item_infos = 1;
+}
+
+message ReqBag {
+}
+
+message ResBag {
+enum ResultType {
+    OK = 0;
+    BAG_LOADED = 1;
+}
+}
+
+message ReqUseItem {
+  uint64 item_uuid = 1;
+  uint32 count = 2;
+}
+
+message ResUseItem {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    INVALID_ITEM = 2;
+    INVALID_COUNT = 3;
+}
+}
+
+message ReqWeaponLevelUp {
+  uint64 item_uuid = 1;
+  repeated ghs.StuffItemInfo item_infos = 2;
+}
+
+message ResWeaponLevelUp {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    MAX_LEVEL = 2;
+    INVALID_ITEM = 3;
+    INVALID_COUNT = 4;
+    RES_NOT_ENOUGH = 5;
+}
+}
+
+message ReqWeaponLevelBreak {
+  uint64 item_uuid = 1;
+}
+
+message ResWeaponLevelBreak {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    MAX_LEVEL_BREAK = 2;
+    STUFF_NOT_ENOUGH = 3;
+}
+}
+
+message ReqWeaponRefine {
+  uint64 item_uuid = 1;
+  repeated uint64 stuff_item_uuid = 2;
+}
+
+message ResWeaponRefine {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    INVALID_ITEM = 2;
+    MAX_REFINE_LEVEL = 3;
+    STUFF_NOT_ENOUGH = 4;
+}
+  repeated ghs.StuffItemInfo item_infos = 2;
+}
+
+message ReqArmLevelUp {
+  uint64 item_uuid = 1;
+  repeated ghs.StuffItemInfo item_infos = 2;
+}
+
+message ResArmLevelUp {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    MAX_LEVEL = 2;
+    INVALID_ITEM = 3;
+    INVALID_COUNT = 4;
+    RES_NOT_ENOUGH = 5;
+}
+}
+
+message ReqArmLevelBreak {
+  uint64 item_uuid = 1;
+}
+
+message ResArmLevelBreak {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    MAX_LEVEL_BREAK = 2;
+    STUFF_NOT_ENOUGH = 3;
+}
+}
+
+message ReqItemLock {
+  uint64 item_uuid = 1;
+}
+
+message ResItemLock {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    INVALID_ITEM = 2;
+    LOCKED = 3;
+}
+}
+
+message ReqItemUnlock {
+  uint64 item_uuid = 1;
+}
+
+message ResItemUnlock {
+enum ResultType {
+    OK = 0;
+    NO_ITEM = 1;
+    INVALID_ITEM = 2;
+    NOT_LOCKED = 3;
+}
+}
+
+message ReqItemSynthetic {
+  uint32 blueprint_id = 1;
+  uint32 count = 2;
+}
+
+message ResItemSynthetic {
+enum ResultType {
+    OK = 0;
+    NO_BLUEPRINT = 1;
+    INVALID_ITEM = 2;
+    INVALID_COUNT = 3;
+    RES_NOT_ENOUGH = 4;
+}
+}
+
+message ReqItemDecompose {
+  repeated uint64 item_uuids = 1;
+}
+
+message ResItemDecompose {
+enum ResultType {
+    OK = 0;
+    INVALID_ITEM = 1;
+    INVALID_COUNT = 2;
+}
+}
+
+message ReqArmForge {
+  uint32 blueprint_id = 1;
+  uint64 feed_item_uuid = 2;
+  uint32 count = 3;
+}
+
+message ResArmForge {
+enum ResultType {
+    OK = 0;
+    NO_BLUEPRINT = 1;
+    INVALID_ITEM = 2;
+    INVALID_COUNT = 3;
+    RES_NOT_ENOUGH = 4;
+}
+}
+
+message ChangedItemInfo {
+  uint32 item_id = 1;
+  sint64 count = 2;
+  uint64 item_uuid = 3;
+  oneof item_extra {
+    ghs.WeaponInfo weapon_info = 101;
+    ghs.ArmInfo arm_info = 102;
+  }
+}
+
+message NtfItemInfo {
+  repeated ghs.ChangedItemInfo changed_item_infos = 1;
+}
+
+message NtfBagInfo {
+  ghs.BagInfo bag_info = 1;
+}

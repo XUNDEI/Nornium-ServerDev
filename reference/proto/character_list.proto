@@ -1,0 +1,191 @@
+// Reconstructed from proto.pb (Nornium/GHS client character_list.proto)
+syntax = "proto3";
+package ghs;
+import "item.proto";
+
+message SkillInfo {
+  uint32 skill_id = 1;
+  uint32 skill_level = 2;
+}
+
+message CharacterInfo {
+  uint32 character_id = 1;
+  uint32 exp = 2;
+  uint32 break_times = 3;
+  ghs.ItemInfo weapon_info = 4;
+  repeated ghs.ItemInfo arm_infos = 5;
+  repeated ghs.SkillInfo skill_infos = 6;
+  repeated uint32 talent_ids = 7;
+  uint32 character_skin_id = 8;
+  uint32 mecha_skin_id = 9;
+  uint32 city_skin_id = 10;
+  repeated uint32 own_character_skin_ids = 11;
+  repeated uint32 own_mecha_skin_ids = 12;
+  repeated uint32 own_city_skin_ids = 13;
+}
+
+message CharacterListInfo {
+  repeated ghs.CharacterInfo character_infos = 1;
+}
+
+message ReqCharacterList {
+}
+
+message ResCharacterList {
+enum ResultType {
+    OK = 0;
+    CHARACTER_LIST_LOADED = 1;
+}
+  ghs.CharacterListInfo character_list_info = 1;
+}
+
+message ReqCharacterLevelUp {
+  uint32 character_id = 1;
+  repeated ghs.StuffItemInfo item_infos = 2;
+}
+
+message ResCharacterLevelUp {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    MAX_LEVEL = 2;
+    INVALID_ITEM = 3;
+    INVALID_COUNT = 4;
+    RES_NOT_ENOUGH = 5;
+}
+}
+
+message ReqCharacterLevelBreak {
+  uint32 character_id = 1;
+}
+
+message ResCharacterLevelBreak {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    MAX_LEVEL_BREAK = 2;
+    STUFF_NOT_ENOUGH = 3;
+}
+}
+
+message ReqCharacterSkillLevelUp {
+  uint32 character_id = 1;
+  uint32 skill_id = 2;
+  repeated ghs.StuffItemInfo item_infos = 3;
+}
+
+message ResCharacterSkillLevelUp {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    NO_SKILL = 2;
+    MAX_LEVEL = 3;
+    INVALID_ITEM = 4;
+    INVALID_COUNT = 5;
+    RES_NOT_ENOUGH = 6;
+}
+}
+
+message ReqCharacterEquipWeapon {
+  uint32 character_id = 1;
+  uint64 item_uuid = 2;
+}
+
+message ResCharacterEquipWeapon {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    NO_ITEM = 2;
+    INVALID_ITEM = 3;
+}
+}
+
+message ReqCharacterSwapWeapon {
+  uint32 character_id = 1;
+  uint32 other_character_id = 2;
+}
+
+message ResCharacterSwapWeapon {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    INVALID_ITEM = 3;
+}
+}
+
+message ReqCharacterEquipArm {
+  uint32 character_id = 1;
+  uint64 item_uuid = 2;
+}
+
+message ResCharacterEquipArm {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    NO_ITEM = 2;
+    INVALID_ITEM = 3;
+}
+}
+
+message ReqCharacterUnequipArm {
+  uint32 character_id = 1;
+  uint64 item_uuid = 2;
+}
+
+message ResCharacterUnequipArm {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    NO_ITEM = 2;
+    INVALID_ITEM = 3;
+}
+}
+
+message ReqCharacterSwapArm {
+  uint32 character_id = 1;
+  uint32 other_character_id = 2;
+  uint32 item_slot = 3;
+}
+
+message ResCharacterSwapArm {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    INVALID_ITEM_SLOT = 2;
+}
+}
+
+message ReqCharacterUnlockTalent {
+  uint32 character_id = 1;
+  uint32 talent_id = 2;
+}
+
+message ResCharacterUnlockTalent {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    TALENT_UNLOCKED = 2;
+    INVALID_TALENT_ID = 3;
+    PRE_TALENT_LOCKED = 4;
+}
+}
+
+message ReqCharacterChangeSkin {
+  uint32 character_id = 1;
+  uint32 character_skin_id = 2;
+  uint32 mecha_skin_id = 3;
+  uint32 city_skin_id = 4;
+}
+
+message ResCharacterChangeSkin {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+    NO_CHANGE = 2;
+    NO_SKIN = 3;
+}
+}
+
+message NtfCharacterInfo {
+  repeated ghs.CharacterInfo changed_character_infos = 1;
+}

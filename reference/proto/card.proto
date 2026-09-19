@@ -1,0 +1,199 @@
+// Reconstructed from proto.pb (Nornium/GHS client card.proto)
+syntax = "proto3";
+package ghs;
+import "universe_common.proto";
+
+message ReqCreateChooseCard {
+  uint64 select_uuid = 1;
+}
+
+message ResCreateChooseCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_SELECT = 2;
+}
+  repeated uint32 card_ids = 1;
+}
+
+message ReqChooseCard {
+  uint64 select_uuid = 1;
+  uint32 index = 2;
+}
+
+message ResChooseCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_SELECT = 2;
+    NOT_CHOOSING = 3;
+    INDEX_OUT_OF_RANGE = 4;
+}
+}
+
+message ReqRefreshChooseCard {
+  uint64 select_uuid = 1;
+}
+
+message ResRefreshChooseCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_SELECT = 2;
+    NOT_CHOOSING = 3;
+    MAX_TIMES = 4;
+    RES_NOT_ENOUGH = 5;
+}
+  repeated uint32 card_ids = 1;
+}
+
+message ReqPlaceCard {
+  ghs.Hex hex = 1;
+  uint32 attach_index = 2;
+  uint32 index_in_hand = 3;
+}
+
+message ResPlaceCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    MAIN_POS_NOT_EXISTS = 2;
+    CARD_SLOT_NOT_EXISTS = 3;
+    CARD_EXISTS = 4;
+    CARD_NOT_FOUND = 5;
+}
+}
+
+message ReqUpgradeCard {
+  ghs.Hex hex = 1;
+  uint32 attach_index = 2;
+  repeated uint32 index_in_hand = 3;
+}
+
+message ResUpgradeCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    CARD_COUNT_INVALID = 2;
+    MAIN_POS_NOT_EXISTS = 3;
+    CARD_SLOT_NOT_EXISTS = 4;
+    CARD_NOT_EXISTS = 5;
+    CARD_NOT_FOUND = 6;
+    CARD_INVALID = 7;
+    RES_NOT_ENOUGH = 8;
+}
+}
+
+message ReqReplaceCard {
+  uint32 index = 1;
+  uint32 replace_index = 2;
+  bool replace = 3;
+}
+
+message ResReplaceCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    INDEX_OUT_OF_RANGE = 2;
+    REPLACE_CARD_NOT_FOUND = 3;
+}
+}
+
+message ReqCreateChooseCurio {
+  uint64 select_uuid = 1;
+}
+
+message ResCreateChooseCurio {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_SELECT = 2;
+}
+  repeated uint32 curio_ids = 1;
+}
+
+message ReqChooseCurio {
+  uint64 select_uuid = 1;
+  uint32 index = 2;
+}
+
+message ResChooseCurio {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_SELECT = 2;
+    NOT_CHOOSING = 3;
+    INDEX_OUT_OF_RANGE = 4;
+    EXISTS = 5;
+}
+}
+
+message ReqRefreshChooseCurio {
+  uint64 select_uuid = 1;
+}
+
+message ResRefreshChooseCurio {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_SELECT = 2;
+    NOT_CHOOSING = 3;
+    MAX_TIMES = 4;
+    RES_NOT_ENOUGH = 5;
+}
+  repeated uint32 curio_ids = 1;
+}
+
+message ReqDemolitionCard {
+  ghs.Hex hex = 1;
+  uint32 attach_index = 2;
+}
+
+message ResDemolitionCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    MAIN_POS_NOT_EXISTS = 2;
+    CARD_SLOT_NOT_EXISTS = 3;
+    CARD_NOT_EXISTS = 4;
+    CARD_NOT_FOUND = 5;
+    CARD_INVALID = 6;
+    RES_NOT_ENOUGH = 7;
+}
+}
+
+message ReqRecallCard {
+  ghs.Hex hex = 1;
+  uint32 attach_index = 2;
+}
+
+message ResRecallCard {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    CARD_FULL = 2;
+    MAIN_POS_NOT_EXISTS = 3;
+    CARD_SLOT_NOT_EXISTS = 4;
+    CARD_NOT_EXISTS = 5;
+    CARD_NOT_FOUND = 6;
+    CARD_INVALID = 7;
+    RES_NOT_ENOUGH = 8;
+}
+}
+
+message NtfAddCard {
+  repeated uint32 card_ids = 1;
+  repeated uint32 missed_card_ids = 2;
+}
+
+message NtfAddCurio {
+  repeated uint32 curio_ids = 1;
+}
+
+message NtfAddCardsForSelect {
+  ghs.CardsForSelect cards_for_select = 1;
+}
+
+message NtfAddCuriosForSelect {
+  ghs.CuriosForSelect curios_for_select = 1;
+}

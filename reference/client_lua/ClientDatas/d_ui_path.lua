@@ -1,0 +1,492 @@
+﻿return {
+	{
+		id = 1,
+		uiName = "UI_CityMenu",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_CityMenu.UI_CityMenu'",
+	},
+	{
+		id = 2,
+		uiName = "UI_Backpack",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Backpack/UI_Backpack.UI_Backpack'",
+	},
+	{
+		id = 3,
+		uiName = "UI_Challenge_Copy",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Challenge_Copy/UI_Challenge_Copy.UI_Challenge_Copy'",
+	},
+	{
+		id = 4,
+		uiName = "UI_CharacterSystem",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_CharacterSystem.UI_CharacterSystem'",
+	},
+	{
+		id = 5,
+		uiName = "UI_Panel_LevelUp",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_Panel_LevelUp.UI_Panel_LevelUp'",
+	},
+	{
+		id = 6,
+		uiName = "UI_Daily_Copy",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Daily_Copy/UI_Daily_Copy.UI_Daily_Copy'",
+	},
+	{
+		id = 7,
+		uiName = "UI_Demon_Furnace",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Demon_Furnace/UI_Demon_Furnace.UI_Demon_Furnace'",
+	},
+	{
+		id = 8,
+		uiName = "UI_Email",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Email/UI_Email.UI_Email'",
+	},
+	{
+		id = 9,
+		uiName = "UI_Equip_forge",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Equip/UI_Equip_forge.UI_Equip_forge'",
+	},
+	{
+		id = 10,
+		uiName = "UI_Levelup_Equip",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Equip/UI_Levelup_Equip.UI_Levelup_Equip'",
+	},
+	{
+		id = 11,
+		uiName = "UI_Rune_Overview",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Equip/UI_Rune_Overview.UI_Rune_Overview'",
+	},
+	{
+		id = 12,
+		uiName = "UI_Quest",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Quest/UI_Quest.UI_Quest'",
+	},
+	{
+		id = 13,
+		uiName = "UI_RewardBook",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_RewardBook/UI_RewardBook.UI_RewardBook'",
+	},
+	{
+		id = 14,
+		uiName = "UI_Shop",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Shop/UI_Shop.UI_Shop'",
+	},
+	{
+		id = 15,
+		uiName = "UI_Levelup_weapon",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Weapon/UI_Levelup_weapon.UI_Levelup_weapon'",
+	},
+	{
+		id = 16,
+		uiName = "UI_SetSystem",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_SetSystem/UI_SetSystem.UI_SetSystem'",
+	},
+	{
+		id = 17,
+		uiName = "UI_City",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_City.UI_City'",
+	},
+	{
+		id = 18,
+		uiName = "UI_Loading",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Loading.UI_Loading'",
+	},
+	{
+		id = 19,
+		uiName = "UI_Loading2",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Loading2.UI_Loading2'",
+	},
+	{
+		id = 20,
+		uiName = "UI_GetItem_Notice",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Shop/UI_GetItem_Notice.UI_GetItem_Notice'",
+	},
+	{
+		id = 21,
+		uiName = "UI_Sub_Element",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_Sub_Element.UI_Sub_Element'",
+	},
+	{
+		id = 22,
+		uiName = "UI_FightProperty",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_FightProperty.UI_FightProperty'",
+	},
+	{
+		id = 23,
+		uiName = "UI_Weapon_Change",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Weapon/UI_Weapon_Change.UI_Weapon_Change'",
+	},
+	{
+		id = 24,
+		uiName = "UI_weapon_refined",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Weapon/UI_weapon_refined.UI_weapon_refined'",
+	},
+	{
+		id = 25,
+		uiName = "UI_idol_Dress",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_idol_Dress.UI_idol_Dress'",
+	},
+	{
+		id = 26,
+		uiName = "UI_DescText",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_SRPG_CardShow/UI_DescText.UI_DescText'",
+	},
+	{
+		id = 27,
+		uiName = "UI_levelup_success",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_levelup_success.UI_levelup_success'",
+	},
+	{
+		id = 28,
+		uiName = "UI_sub_skill_levelpanel",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_sub_skill_levelpanel.UI_sub_skill_levelpanel'",
+	},
+	{
+		id = 29,
+		uiName = "UI_Rune_Overview",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Equip/UI_Rune_Overview.UI_Rune_Overview'",
+	},
+	{
+		id = 30,
+		uiName = "UI_Com_Notice",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Com_Notice.UI_Com_Notice'",
+	},
+	{
+		id = 31,
+		uiName = "UI_GetItem_Notice",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Shop/UI_GetItem_Notice.UI_GetItem_Notice'",
+	},
+	{
+		id = 32,
+		uiName = "UI_Equip_Change",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Equip/UI_Equip_Change.UI_Equip_Change'",
+	},
+	{
+		id = 33,
+		uiName = "UI_Sub_TalentDetail",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_Sub_TalentDetail.UI_Sub_TalentDetail'",
+	},
+	{
+		id = 34,
+		uiName = "UI_Talent_Tips",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_Talent_Tips.UI_Talent_Tips'",
+	},
+	{
+		id = 35,
+		uiName = "UI_Team_List",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TeamEdit/UI_Team_List.UI_Team_List'",
+	},
+	{
+		id = 36,
+		uiName = "UI_Com_Team_NameSet",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TeamEdit/UI_Com_Team_NameSet.UI_Com_Team_NameSet'",
+	},
+	{
+		id = 37,
+		uiName = "UI_ItemDetail",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Backpack/UI_ItemDetail.UI_ItemDetail'",
+	},
+	{
+		id = 38,
+		uiName = "UI_Login",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Login.UI_Login'",
+	},
+	{
+		id = 39,
+		uiName = "UI_Dialog_Story",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Dialog_story.UI_Dialog_Story'",
+	},
+	{
+		id = 40,
+		uiName = "UI_Dialog_Cutscene",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Dialog_Cutscene.UI_Dialog_Cutscene'",
+	},
+	{
+		id = 41,
+		uiName = "UI_Dialog_Talk",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Dialog_Talk.UI_Dialog_Talk'",
+	},
+	{
+		id = 42,
+		uiName = "UI_end_reward",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_SRPG_end/UI_end_reward.UI_end_reward'",
+	},
+	{
+		id = 43,
+		uiName = "UI_Fail_Settlement",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Daily_Copy/UI_Fail_Settlement.UI_Fail_Settlement'",
+	},
+	{
+		id = 44,
+		uiName = "UI_Daily_Settlement",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Daily_Copy/UI_Daily_Settlement.UI_Daily_Settlement'",
+	},
+	{
+		id = 45,
+		uiName = "UI_ChallengeFightResult",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Challenge_Copy/UI_ChallengeFightResult.UI_ChallengeFightResult'",
+	},
+	{
+		id = 46,
+		uiName = "UI_FloatingText",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_FloatingText.UI_FloatingText'",
+	},
+	{
+		id = 47,
+		uiName = "UI_Com_UseWindow",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Backpack/UI_Com_UseWindow.UI_Com_UseWindow'",
+	},
+	{
+		id = 48,
+		uiName = "UI_Sub_TalentDetail",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_Sub_TalentDetail.UI_Sub_TalentDetail'",
+	},
+	{
+		id = 49,
+		uiName = "UI_Talent_Tips",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_Talent_Tips.UI_Talent_Tips'",
+	},
+	{
+		id = 50,
+		uiName = "UI_Sweep_Settlement",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Daily_Copy/UI_Sweep_Settlement.UI_Sweep_Settlement'",
+	},
+	{
+		id = 51,
+		uiName = "UI_Fight_Start",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TeamEdit/UI_Fight_Start.UI_Fight_Start'",
+	},
+	{
+		id = 52,
+		uiName = "UI_Space",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Space.UI_Space'",
+	},
+	{
+		id = 53,
+		uiName = "UI_Menu",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Menu/UI_Menu.UI_Menu'",
+	},
+	{
+		id = 54,
+		uiName = "UI_SRPG_Start",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_SRPG_Start/UI_SRPG_Start.UI_SRPG_Start'",
+	},
+	{
+		id = 55,
+		uiName = "UI_Fight",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Fight.UI_Fight'",
+	},
+	{
+		id = 56,
+		uiName = "UI_FightZJ",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_FightZJ.UI_FightZJ'",
+	},
+	{
+		id = 57,
+		uiName = "UI_StreamLoading",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_StreamLoading.UI_StreamLoading'",
+	},
+	{
+		id = 58,
+		uiName = "UI_Build",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Home/UI_Build.UI_Build'",
+	},
+	{
+		id = 59,
+		uiName = "UI_HomeSet",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Home/UI_HomeSet.UI_HomeSet'",
+	},
+	{
+		id = 60,
+		uiName = "UI_GetEquip",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Shop/UI_GetEquip.UI_GetEquip'",
+	},
+	{
+		id = 61,
+		uiName = "UI_GetWeapon",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Shop/UI_GetWeapon.UI_GetWeapon'",
+	},
+	{
+		id = 62,
+		uiName = "UI_HandBook",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_HandBook/UI_HandBook.UI_HandBook'",
+	},
+	{
+		id = 63,
+		uiName = "UI_PlayerLevelUp",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_PlayerLevelUP/UI_PlayerLevelUp.UI_PlayerLevelUp'",
+	},
+	{
+		id = 64,
+		uiName = "UI_CharTrain",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_CharTrain/UI_CharTrain.UI_CharTrain'",
+	},
+	{
+		id = 65,
+		uiName = "UI_SelectTree",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_StoryTree/UI_SelectTree.UI_SelectTree'",
+	},
+	{
+		id = 66,
+		uiName = "UI_SelectNode",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_StoryTree/UI_SelectNode.UI_SelectNode'",
+	},
+	{
+		id = 67,
+		uiName = "UI_NodeStart",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_StoryTree/UI_NodeStart.UI_NodeStart'",
+	},
+	{
+		id = 68,
+		uiName = "UI_NodeEnd",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_StoryTree/UI_NodeEnd.UI_NodeEnd'",
+	},
+	{
+		id = 69,
+		uiName = "UI_Dps_Copy",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Dps_Copy/UI_Dps_Copy.UI_Dps_Copy'",
+	},
+	{
+		id = 70,
+		uiName = "UI_tutorial",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_tutorial/UI_tutorial.UI_tutorial'",
+	},
+	{
+		id = 71,
+		uiName = "UI_SRPG_GrowthShop",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_SRPG_Shop/UI_SRPG_GrowthShop.UI_SRPG_GrowthShop'",
+	},
+	{
+		id = 72,
+		uiName = "UI_SystemDescription",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/Common/UI_SystemDescription.UI_SystemDescription'",
+	},
+	{
+		id = 73,
+		uiName = "UI_Reconnect",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Reconnect/UI_Reconnect.UI_Reconnect'",
+	},
+	{
+		id = 74,
+		uiName = "UI_Activity",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Activity/UI_Activity.UI_Activity'",
+	},
+	{
+		id = 75,
+		uiName = "UI_Activity_SignIn",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Activity/UI_SignIn/UI_Activity_SignIn.UI_Activity_SignIn'",
+	},
+	{
+		id = 76,
+		uiName = "UI_STT_Button",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/Procedure/City/UI/UI_STT_Button.UI_STT_Button'",
+	},
+	{
+		id = 77,
+		uiName = "UI_TrainStation",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TrainStation/UI_TrainStation.UI_TrainStation'",
+	},
+	{
+		id = 78,
+		uiName = "UI_LoginPanel",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_LoginPanel.UI_LoginPanel'",
+	},
+	{
+		id = 79,
+		uiName = "UI_Welfare_Result",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TrainStation/UI_Welfare_Result.UI_Welfare_Result'",
+	},
+	{
+		id = 80,
+		uiName = "UI_Window_Details",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TrainStation/UI_window_details.UI_window_details'",
+	},
+	{
+		id = 81,
+		uiName = "UI_Activity",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Activity/UI_Activity.UI_Activity'",
+	},
+	{
+		id = 82,
+		uiName = "UI_BossRush_Main",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_BossRush/UI_BossRush_Main.UI_BossRush_Main'",
+	},
+	{
+		id = 83,
+		uiName = "UI_Welfare_Reward",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TrainStation/UI_Welfare_reward.UI_Welfare_reward'",
+	},
+	{
+		id = 84,
+		uiName = "UI_Fail_L",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Daily_Copy/UI_Fail_L.UI_Fail_L'",
+	},
+	{
+		id = 85,
+		uiName = "UI_TopUp_Shop",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Mall/UI_TopUp_Shop.UI_TopUp_Shop'",
+	},
+	{
+		id = 86,
+		uiName = "UI_TopUp_GiftPacks",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Mall/UI_TopUp_GiftPacks.UI_TopUp_GiftPacks'",
+	},
+	{
+		id = 87,
+		uiName = "UI_Com_BuyWindow",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Mall/UI_Com_BuyWindow.UI_Com_BuyWindow'",
+	},
+	{
+		id = 88,
+		uiName = "UI_Idol_Dress_Hotel",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Character/UI_idol_Dress_Hotel.UI_idol_Dress_Hotel'",
+	},
+	{
+		id = 89,
+		uiName = "UI_Story_Loading",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_StoryTree/UI_Story_Loading.UI_Story_Loading'",
+	},
+	{
+		id = 90,
+		uiName = "UI_Welfare_Ding",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TrainStation/UI_Welfare_Ding.UI_Welfare_Ding'",
+	},
+	{
+		id = 91,
+		uiName = "UI_SwapMoney_C",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TrainStation/UI_Welfare_SwapMoney.UI_Welfare_SwapMoney'",
+	},
+	{
+		id = 92,
+		uiName = "UI_AddUp",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Mall/UI_AddUp.UI_AddUp'",
+	},
+	{
+		id = 93,
+		uiName = "UI_TopUp_MonthCard_GetItem",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Mall/UI_TopUp_MonthCard_GetItem.UI_TopUp_MonthCard_GetItem'",
+	},
+	{
+		id = 94,
+		uiName = "UI_SwapTicket_C",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_TrainStation/UI_Welfare_SwapTicket.UI_Welfare_SwapTicket'",
+	},
+	{
+		id = 95,
+		uiName = "UI_Waiting",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Mall/UI_Waiting.UI_Waiting'",
+	},
+	{
+		id = 96,
+		uiName = "UI_Reconnect",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Reconnect/UI_Reconnect.UI_Reconnect'",
+	},
+	{
+		id = 97,
+		uiName = "UI_Loading3",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_Loading3.UI_Loading3'",
+	},
+	{
+		id = 98,
+		uiName = "UI_SRPG_Shop_Growth",
+		path = "/Script/UMGEditor.WidgetBlueprint'/Game/_Game/Blueprints/UI/UI_SRPG_Shop/UI_SRPG_Shop_Growth.UI_SRPG_Shop_Growth'",
+	},
+}

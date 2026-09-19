@@ -1,0 +1,112 @@
+// Reconstructed from proto.pb (Nornium/GHS client gacha.proto)
+syntax = "proto3";
+package ghs;
+
+message GachaRecordInfo {
+  uint64 gacha_seconds = 1;
+  uint32 gacha_item_id = 2;
+  uint32 gacha_item_type = 3;
+  uint32 gacha_item_rarity = 4;
+  uint32 pool_index = 5;
+  bool ding = 6;
+}
+
+message GachaTypeInfo {
+  uint32 type_id = 1;
+  uint32 no_up_times = 2;
+  uint32 no_5p_times = 3;
+  uint32 total_times = 4;
+  uint64 free_seconds = 5;
+  uint32 choose_times = 6;
+  repeated ghs.GachaRecordInfo gacha_record_infos = 7;
+}
+
+message GachaListInfo {
+  uint32 list_id = 1;
+  repeated ghs.GachaRecordInfo gacha_pending_record_infos = 2;
+}
+
+message GachaInfo {
+  repeated ghs.GachaTypeInfo gacha_type_infos = 1;
+  repeated ghs.GachaListInfo gacha_list_infos = 2;
+  repeated uint32 finished_type_ids = 3;
+  repeated uint32 sit_character_ids = 4;
+}
+
+message ReqGacha {
+}
+
+message ResGacha {
+enum ResultType {
+    OK = 0;
+    GACHA_LOADED = 1;
+}
+  ghs.GachaInfo gacha_info = 1;
+}
+
+message ReqGachaCreate {
+  uint32 list_id = 1;
+  uint32 times = 2;
+}
+
+message ResGachaCreate {
+enum ResultType {
+    OK = 0;
+    LIST_ID_INVALID = 1;
+    NOT_IN_SCHEDULE = 2;
+    GACHA_TYPE_INVALID = 3;
+    RES_NOT_ENOUGH = 4;
+    LIST_FINISHED = 5;
+    GACHA_TIMES_INVALID = 6;
+    PENDING_CONFIRM = 7;
+}
+  repeated ghs.GachaRecordInfo gacha_pending_record_infos = 1;
+  uint64 free_seconds = 2;
+}
+
+message ReqGachaConfirm {
+  uint32 list_id = 1;
+}
+
+message ResGachaConfirm {
+enum ResultType {
+    OK = 0;
+    GACHA_TYPE_INVALID = 1;
+    LIST_NOT_FOUND = 2;
+    NO_PENDING = 3;
+}
+}
+
+message ReqGachaDing {
+  uint32 list_id = 1;
+  uint32 item_index = 2;
+}
+
+message ResGachaDing {
+enum ResultType {
+    OK = 0;
+    NOT_IN_SCHEDULE = 1;
+    LIST_NOT_FOUND = 2;
+    GACHA_TYPE_INVALID = 3;
+    NO_PENDING = 4;
+    NO_RECORD = 5;
+    INVALID_RECORD = 6;
+}
+  ghs.GachaRecordInfo gacha_record_info = 1;
+}
+
+message ReqGachaChooseCard {
+  uint32 list_id = 1;
+  uint32 item_index = 2;
+}
+
+message ResGachaChooseCard {
+enum ResultType {
+    OK = 0;
+    NOT_IN_SCHEDULE = 1;
+    LIST_NOT_FOUND = 2;
+    GACHA_TYPE_INVALID = 3;
+    NO_ITEM = 4;
+    NO_TIMES = 5;
+}
+}

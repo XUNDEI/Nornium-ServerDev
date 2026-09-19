@@ -1,0 +1,50 @@
+﻿return {
+	[1001] = {
+		id = 1001,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_1_png.SceneIcon_1_png'",
+	},
+	[1002] = {
+		id = 1002,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_1_png.SceneIcon_1_png'",
+	},
+	[1003] = {
+		id = 1003,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_2_png.SceneIcon_2_png'",
+	},
+	[1004] = {
+		id = 1004,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_3_png.SceneIcon_3_png'",
+	},
+	[1005] = {
+		id = 1005,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_5_png.SceneIcon_5_png'",
+	},
+	[1006] = {
+		id = 1006,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_6_png.SceneIcon_6_png'",
+	},
+	[1007] = {
+		id = 1007,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_7_png.SceneIcon_7_png'",
+	},
+	[1008] = {
+		id = 1008,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_8_png.SceneIcon_8_png'",
+	},
+	[1009] = {
+		id = 1009,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_9_png.SceneIcon_9_png'",
+	},
+	[1010] = {
+		id = 1010,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_10_png.SceneIcon_10_png'",
+	},
+	[2001] = {
+		id = 2001,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_4_png.SceneIcon_4_png'",
+	},
+	[3001] = {
+		id = 3001,
+		pathIcon = "/Script/Paper2D.PaperSprite'/Game/_Game/TP_New/City_res/Frames/SceneIcon_11_png.SceneIcon_11_png'",
+	},
+}

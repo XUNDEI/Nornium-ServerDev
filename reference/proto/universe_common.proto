@@ -1,0 +1,56 @@
+// Reconstructed from proto.pb (Nornium/GHS client universe_common.proto)
+syntax = "proto3";
+package ghs;
+
+message Hex {
+  sint32 q = 1;
+  sint32 r = 2;
+}
+
+message CardsForSelect {
+  uint64 select_uuid = 1;
+  repeated uint32 card_ids = 2;
+  uint32 refresh_times = 3;
+  uint32 pool_id = 101;
+}
+
+message CuriosForSelect {
+  uint64 select_uuid = 1;
+  repeated uint32 curio_ids = 2;
+  uint32 refresh_times = 3;
+  uint32 pool_id = 101;
+}
+
+message CharacterFightData {
+  uint32 character_id = 1;
+  uint32 cur_hp = 2;
+}
+
+message UniverseFightData {
+  repeated ghs.CharacterFightData character_fight_datas = 1;
+  uint32 boat_energy = 2;
+  uint32 character_changed_times = 3;
+}
+
+message EventOptionInfo {
+  uint32 option_id = 1;
+  bool enabled = 2;
+}
+
+message EventInfo {
+  uint64 event_uuid = 1;
+  uint32 event_id = 2;
+  repeated ghs.EventOptionInfo options = 3;
+  uint32 option_id = 4;
+}
+
+message MissionInfo {
+  uint64 mission_uuid = 1;
+  uint32 mission_id = 2;
+  uint32 mission_elapsed = 3;
+  uint32 mission_result = 4;
+  uint32 mission_begin_turn = 5;
+  uint32 mission_begin_step = 6;
+  uint32 mission_end_turn = 7;
+  uint32 mission_end_step = 8;
+}

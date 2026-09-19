@@ -1,0 +1,11 @@
+// Reconstructed from proto.pb (Nornium/GHS client gm.proto)
+syntax = "proto3";
+package ghs;
+
+message ReqGmCmd {
+  string cmd = 1;
+}
+
+message ResGmCmd {
+  string msg = 1;
+}

@@ -1,0 +1,349 @@
+// Reconstructed from proto.pb (Nornium/GHS client universe.proto)
+syntax = "proto3";
+package ghs;
+import "common_fight.proto";
+import "universe_common.proto";
+
+enum MainPosState {
+  MAIN_POS_STATE_INVISIBLE_NOT_EXPLORABLE = 0;
+  MAIN_POS_STATE_VISIBLE_NOT_EXPLORABLE = 1;
+  MAIN_POS_STATE_VISIBLE_EXPLORABLE = 2;
+  MAIN_POS_STATE_VISIBLE_EXPLORED = 3;
+}
+
+message MainPosOptionInfo {
+  uint32 option_id = 1;
+}
+
+message MainPosCardPosInfo {
+  uint32 card_pos_id = 1;
+  uint32 card_id = 2;
+  uint32 upgrade_times = 3;
+}
+
+message MainPosShopItemInfo {
+  uint32 item_id = 1;
+  bool sold = 2;
+}
+
+message MainPosShopInfo {
+  uint32 shop_id = 1;
+  repeated ghs.MainPosShopItemInfo item_infos = 2;
+}
+
+message MainPosAttachInfo {
+  oneof main_pos_attach_extra {
+    ghs.MainPosOptionInfo main_pos_option_info = 101;
+    ghs.MainPosCardPosInfo main_pos_card_pos_info = 102;
+    ghs.MainPosShopInfo main_pos_shop_info = 103;
+  }
+}
+
+message MainPosInfo {
+  ghs.Hex hex = 1;
+  uint32 main_pos_id = 2;
+  ghs.MainPosState state = 3;
+  repeated ghs.MainPosAttachInfo main_pos_attach_infos = 101;
+}
+
+message BossInfo {
+  uint32 boss_index = 1;
+  uint64 fight_uuid = 2;
+  ghs.Hex hex = 3;
+}
+
+message ForeverUniverseBuffInfo {
+  uint32 buff_id = 1;
+}
+
+message RealtimeUniverseBuffInfo {
+  uint32 buff_id = 1;
+  uint32 elapsed = 2;
+}
+
+message DelayedUniverseBuffInfo {
+  uint32 buff_id = 1;
+  uint32 elapsed = 2;
+}
+
+message UniverseInfo {
+  repeated sint32 res_value = 1;
+  uint32 turn = 2;
+  uint32 step = 3;
+  sint32 cur_hp = 4;
+  uint32 difficulty_value = 5;
+  uint32 specific_id = 6;
+  uint32 main_planet_id = 7;
+  uint32 map_id = 8;
+  repeated ghs.MainPosInfo main_pos_infos = 9;
+  ghs.Hex base_hex = 10;
+  ghs.Hex last_explored_hex = 11;
+  uint32 boss_id = 12;
+  repeated ghs.BossInfo boss_infos = 13;
+  repeated ghs.FightInfo fight_infos = 14;
+  repeated ghs.RealtimeUniverseBuffInfo realtime_buff_infos = 15;
+  repeated uint32 forever_buff_ids = 16;
+  repeated uint32 forever_fight_buff_ids = 17;
+  repeated uint32 card_ids = 101;
+  repeated uint32 curio_ids = 102;
+  repeated ghs.CardsForSelect cards_for_selects = 103;
+  repeated ghs.CuriosForSelect curios_for_selects = 104;
+  repeated uint32 missed_card_ids = 105;
+  repeated ghs.EventInfo event_infos = 201;
+  repeated ghs.MissionInfo mission_infos = 301;
+  ghs.UniverseFightData universe_fight_data = 401;
+}
+
+message ReqUniverse {
+}
+
+message ResUniverse {
+enum ResultType {
+    OK = 0;
+    UNIVERSE_LOADED = 1;
+    EMPTY_UNIVERSE = 2;
+}
+  ghs.UniverseInfo universe_info = 1;
+}
+
+message ReqNewUniverse {
+  uint32 difficulty_value = 1;
+  uint32 main_planet_id = 2;
+  uint32 map_type = 3;
+  repeated uint32 character_ids = 4;
+}
+
+message ResNewUniverse {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+}
+  ghs.UniverseInfo universe_info = 1;
+}
+
+message ReqNewUniverseSpecific {
+  uint32 specific_id = 1;
+}
+
+message ResNewUniverseSpecific {
+enum ResultType {
+    OK = 0;
+    NO_CHARACTER = 1;
+}
+  ghs.UniverseInfo universe_info = 1;
+}
+
+message ReqCompleteUniverse {
+}
+
+message ResCompleteUniverse {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+}
+}
+
+message ReqUniverseFight {
+  uint64 fight_uuid = 1;
+}
+
+message ResUniverseFight {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_FIGHT = 2;
+    FIGHT_STATE_ERROR = 3;
+}
+}
+
+message ReqCompleteUniverseFight {
+  uint64 fight_uuid = 1;
+  bool result = 2;
+  ghs.UniverseFightData universe_fight_data = 3;
+}
+
+message ResCompleteUniverseFight {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_POS = 2;
+    NO_FIGHT = 3;
+    NOT_FIGHTING = 4;
+    FIGHT_DATA_ERROR = 5;
+}
+}
+
+message ReqBossFight {
+  uint32 boss_index = 1;
+}
+
+message ResBossFight {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    FIGHT_STATE_ERROR = 2;
+    NO_BOSS = 3;
+}
+  ghs.FightInfo fight_info = 1;
+}
+
+message ReqCompleteBossFight {
+  uint32 boss_index = 1;
+  bool result = 2;
+  ghs.UniverseFightData universe_fight_data = 3;
+}
+
+message ResCompleteBossFight {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NO_BOSS = 2;
+    NO_FIGHT = 3;
+    NOT_FIGHTING = 4;
+    FIGHT_DATA_ERROR = 5;
+}
+}
+
+message ReqUniverseChangeCharacter {
+  uint32 character_id = 1;
+  uint32 character_index = 2;
+}
+
+message ResUniverseChangeCharacter {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    INDEX_INVALID = 2;
+    NO_CHARACTER = 3;
+    RES_NOT_ENOUGH = 4;
+}
+}
+
+message NtfUniverseInfo {
+  repeated sint32 res_value = 1;
+  sint32 cur_hp = 2;
+}
+
+message NtfUniverseClear {
+  bool result = 1;
+}
+
+message NtfBossInfo {
+  repeated ghs.BossInfo boss_infos = 1;
+}
+
+message NtfFightInfo {
+  ghs.FightInfo fight_info = 1;
+}
+
+message NtfUniverseBoatEnergy {
+  sint32 boat_energy = 1;
+}
+
+message NtfAddRealtimeBuff {
+  repeated uint32 buff_ids = 1;
+}
+
+message NtfAddForeverBuff {
+  repeated uint32 buff_ids = 1;
+}
+
+message NtfRemoveForeverBuff {
+  repeated uint32 buff_ids = 1;
+}
+
+message NtfAddForeverFightBuff {
+  repeated uint32 buff_ids = 1;
+}
+
+message NtfEffectTriggerBegin {
+  uint32 trigger_id = 1;
+}
+
+message NtfEffectTriggerEnd {
+}
+
+message ReqExplore {
+  ghs.Hex hex = 1;
+}
+
+message ResExplore {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    EXPLORE_TIMES_NOT_ENOUGH = 2;
+    EXPLORING = 3;
+    NO_POS = 4;
+    STATE_INVALID = 5;
+}
+}
+
+message ReqMainPosInteract {
+  ghs.Hex hex = 1;
+  uint32 attach_index = 2;
+}
+
+message ResMainPosInteract {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NOT_MAIN_POS = 2;
+    NOT_EXPLORED = 3;
+    RES_NOT_ENOUGH = 5;
+    OPTION_NOT_FOUND = 6;
+}
+}
+
+message ReqMainPosShopBuy {
+  ghs.Hex hex = 1;
+  uint32 attach_index = 2;
+  uint32 item_index = 3;
+}
+
+message ResMainPosShopBuy {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NOT_MAIN_POS = 2;
+    NOT_EXPLORED = 3;
+    RES_NOT_ENOUGH = 4;
+    SHOP_NOT_FOUND = 5;
+    ITEM_NOT_FOUND = 6;
+    ITEM_SOLD = 7;
+}
+}
+
+message ReqMainPosShopRefresh {
+  ghs.Hex hex = 1;
+  uint32 attach_index = 2;
+}
+
+message ResMainPosShopRefresh {
+enum ResultType {
+    OK = 0;
+    EMPTY_UNIVERSE = 1;
+    NOT_MAIN_POS = 2;
+    NOT_EXPLORED = 3;
+    RES_NOT_ENOUGH = 4;
+    SHOP_NOT_FOUND = 5;
+}
+  repeated ghs.MainPosShopItemInfo item_infos = 1;
+}
+
+message NtfMainPosInfo {
+  repeated ghs.MainPosInfo main_pos_infos = 1;
+}
+
+message MainPosStateChange {
+  ghs.Hex hex = 1;
+  ghs.MainPosState state = 2;
+}
+
+message NtfMainPosStateChange {
+  repeated ghs.MainPosStateChange main_pos_state_changes = 1;
+}
+
+message NtfMainPosAddAttach {
+  ghs.Hex hex = 1;
+  repeated ghs.MainPosAttachInfo main_pos_attach_infos = 2;
+}

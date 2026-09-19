@@ -1,0 +1,47 @@
+// Reconstructed from proto.pb (Nornium/GHS client order.proto)
+syntax = "proto3";
+package ghs;
+
+message ReqCreateOrder {
+  string access_token = 1;
+  uint32 order_item_id = 2;
+  uint32 order_item_count = 3;
+  uint64 steam_id = 4;
+  string steam_current_game_language = 5;
+}
+
+message ResCreateOrder {
+enum ResultType {
+    OK = 0;
+    NO_MALL_ITEM = 1;
+    NO_PRODUCT_NAME = 2;
+    STEAM_GET_USER_INFO_FAILED = 101;
+    STEAM_USER_LOCKED_FROM_PURCHASING = 102;
+    STEAM_INIT_TXN_FAILED = 103;
+    STEAM_GET_USER_INFO_FAILED_HTTP_FAILED = 111;
+    STEAM_INIT_TXN_FAILED_HTTP_FAILED = 113;
+    STEAM_GET_USER_INFO_FAILED_JSON_FAILED = 121;
+    STEAM_INIT_TXN_FAILED_JSON_FAILED = 123;
+}
+  uint64 game_order_id = 1;
+}
+
+message ReqFinishOrder {
+  string access_token = 1;
+  string app_id = 2;
+  uint64 game_order_id = 3;
+  uint64 sdk_order_id = 4;
+}
+
+message ResFinishOrder {
+enum ResultType {
+    OK = 0;
+    ORDER_PROCESSING = 1;
+    ORDER_NOT_FOUND = 2;
+    STEAM_FINALIZE_TXN_FAILED = 101;
+}
+}
+
+message NtfFinishOrder {
+  uint64 game_order_id = 1;
+}

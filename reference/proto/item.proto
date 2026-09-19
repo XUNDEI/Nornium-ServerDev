@@ -1,0 +1,46 @@
+// Reconstructed from proto.pb (Nornium/GHS client item.proto)
+syntax = "proto3";
+package ghs;
+
+message WeaponInfo {
+  uint32 exp = 1;
+  uint32 break_times = 2;
+  uint32 refine_level = 3;
+  bool locked = 4;
+}
+
+message ArmRandomAttributeInfo {
+  uint32 weight_index = 1;
+  uint32 float_count = 2;
+}
+
+message ArmRuneInfo {
+  uint32 rune_id = 1;
+  uint32 base_attribute_float_count = 2;
+  uint32 extra_attribute_id = 3;
+  uint32 extra_attribute_float_count = 4;
+  uint32 feed_number = 5;
+}
+
+message ArmInfo {
+  uint32 exp = 1;
+  uint32 break_times = 2;
+  repeated ghs.ArmRandomAttributeInfo arm_random_attribute_infos = 3;
+  repeated ghs.ArmRuneInfo arm_rune_infos = 4;
+  bool locked = 5;
+}
+
+message ItemInfo {
+  uint32 item_id = 1;
+  uint32 count = 2;
+  uint64 item_uuid = 3;
+  oneof item_extra {
+    ghs.WeaponInfo weapon_info = 101;
+    ghs.ArmInfo arm_info = 102;
+  }
+}
+
+message StuffItemInfo {
+  uint64 item_uuid = 1;
+  uint32 count = 2;
+}

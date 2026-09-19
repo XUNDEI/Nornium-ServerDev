@@ -1,0 +1,259 @@
+// Reconstructed from proto.pb (Nornium/GHS client player.proto)
+syntax = "proto3";
+package ghs;
+import "common_fight.proto";
+import "common_mission.proto";
+
+message PlayerDailyMissionInfo {
+  repeated ghs.CommonMissionInfo player_mission_infos = 1;
+  uint64 last_auto_refresh_seconds = 2;
+  uint64 manual_refresh_seconds = 3;
+}
+
+message PlayerPickingInfo {
+  uint32 picking_id = 1;
+  uint64 picking_seconds = 2;
+}
+
+message PlayerUniverseGrowthNodeInfo {
+  uint32 node_id = 1;
+  uint32 node_rank = 2;
+}
+
+message PlayerTransformInScene {
+  uint32 scene_id = 1;
+  repeated double location = 2;
+  double yaw = 3;
+}
+
+message PlayerInfo {
+  uint32 player_id = 1;
+  uint64 register_seconds = 2;
+  string player_name = 3;
+  string player_sequence_name = 4;
+  uint32 avatar_id = 5;
+  repeated bool received_level_awards = 6;
+  repeated uint32 daily_level_id_passed = 101;
+  ghs.FightInfo daily_level_fight_info = 102;
+  repeated uint32 blueprint_ids = 103;
+  repeated uint32 arm_blueprint_ids = 104;
+  ghs.PlayerDailyMissionInfo player_daily_mission_info = 105;
+  repeated ghs.CommonMissionInfo player_book_mission_infos = 106;
+  repeated ghs.PlayerPickingInfo player_picking_infos = 201;
+  repeated ghs.PlayerUniverseGrowthNodeInfo player_universe_growth_node_infos = 301;
+  repeated ghs.PlayerTransformInScene player_transform_in_scenes = 401;
+}
+
+message ReqPlayer {
+}
+
+message ResPlayer {
+enum ResultType {
+    OK = 0;
+    PLAYER_LOADED = 1;
+}
+  ghs.PlayerInfo player_info = 1;
+}
+
+message ReqChangePlayerName {
+  string player_name = 1;
+}
+
+message ResChangePlayerName {
+enum ResultType {
+    OK = 0;
+    INVALID_NAME = 1;
+    NAME_EXISTS = 2;
+}
+}
+
+message ReqChangePlayerSequenceName {
+  string player_sequence_name = 1;
+}
+
+message ResChangePlayerSequenceName {
+enum ResultType {
+    OK = 0;
+    INVALID_NAME = 1;
+}
+}
+
+message ReqChangePlayerAvatar {
+  uint32 avatar_id = 1;
+}
+
+message ResChangePlayerAvatar {
+enum ResultType {
+    OK = 0;
+}
+}
+
+message ReqPlayerReceiveLevelAward {
+  uint32 level = 1;
+}
+
+message ResPlayerReceiveLevelAward {
+enum ResultType {
+    OK = 0;
+    RECEIVED = 1;
+    NEED_MORE_EXP = 2;
+}
+}
+
+message ReqDailyLevelFight {
+  uint32 fight_level_id = 1;
+}
+
+message ResDailyLevelFight {
+enum ResultType {
+    OK = 0;
+    RES_NOT_ENOUGH = 1;
+    LEVEL_LOCKED = 2;
+}
+  uint64 fight_uuid = 1;
+}
+
+message ReqCompleteDailyLevelFight {
+  bool result = 1;
+}
+
+message ResCompleteDailyLevelFight {
+enum ResultType {
+    OK = 0;
+    NO_FIGHT = 1;
+    NOT_FIGHTING = 2;
+}
+}
+
+message ReqDailyLevelSweep {
+  uint32 fight_level_id = 1;
+}
+
+message ResDailyLevelSweep {
+enum ResultType {
+    OK = 0;
+    RES_NOT_ENOUGH = 1;
+    LEVEL_NOT_PASS = 2;
+}
+}
+
+message ReqCompletePlayerDailyMission {
+  uint32 mission_id = 1;
+}
+
+message ResCompletePlayerDailyMission {
+enum ResultType {
+    OK = 0;
+    NO_MISSION = 1;
+    MISSION_COMPLETED = 2;
+    CHECK_CONDITION_FAILED = 3;
+}
+}
+
+message ReqRefreshPlayerDailyMission {
+  uint32 mission_id = 1;
+}
+
+message ResRefreshPlayerDailyMission {
+enum ResultType {
+    OK = 0;
+    REFRESHED = 1;
+    NO_MISSION = 2;
+    MISSION_COMPLETED = 3;
+    MISSION_COMPLETE = 4;
+}
+  ghs.CommonMissionInfo player_mission_info = 1;
+}
+
+message NtfPlayerDailyMissionInfo {
+  ghs.PlayerDailyMissionInfo player_daily_mission_info = 1;
+}
+
+message ReqCompletePlayerBookMission {
+  uint32 mission_id = 1;
+}
+
+message ResCompletePlayerBookMission {
+enum ResultType {
+    OK = 0;
+    NO_MISSION = 1;
+    MISSION_COMPLETED = 2;
+    CHECK_CONDITION_FAILED = 3;
+}
+}
+
+message ReqPlayerPicking {
+  uint32 picking_id = 1;
+}
+
+message ResPlayerPicking {
+enum ResultType {
+    OK = 0;
+    PICKED = 1;
+}
+}
+
+message ReqPlayerUniverseGrowth {
+  uint32 node_id = 1;
+}
+
+message ResPlayerUniverseGrowth {
+enum ResultType {
+    OK = 0;
+    MAX_RANK = 1;
+    RES_NOT_ENOUGH = 2;
+}
+}
+
+message ReqPlayerUniverseGrowthReset {
+}
+
+message ResPlayerUniverseGrowthReset {
+}
+
+message ReqRecordPlayerTransformInScene {
+  ghs.PlayerTransformInScene player_transform_in_scene = 1;
+}
+
+message ResRecordPlayerTransformInScene {
+enum ResultType {
+    OK = 0;
+    INVALID_LOCATION = 1;
+}
+}
+
+message ReqRemovePlayerTransformInScene {
+  repeated uint32 scene_ids = 1;
+}
+
+message ResRemovePlayerTransformInScene {
+enum ResultType {
+    OK = 0;
+    INVALID_SCENE = 1;
+}
+}
+
+message ReqUseGiftCode {
+  string gift_code = 1;
+}
+
+message ResUseGiftCode {
+enum ResultType {
+    OK = 0;
+    INVALID_CODE = 1;
+    CODE_NOT_OPEN = 2;
+    CODE_CLOSED = 3;
+    GROUP_USED = 4;
+    CODE_USED_UP = 5;
+}
+}
+
+message ReqSaveData {
+}
+
+message ResSaveData {
+}
+
+message NtfServerTimeOffset {
+  uint64 offset = 1;
+}

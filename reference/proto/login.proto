@@ -1,0 +1,71 @@
+// Reconstructed from proto.pb (Nornium/GHS client login.proto)
+syntax = "proto3";
+package ghs;
+
+message ReqRegister {
+  string account_name = 1;
+  string password = 2;
+  string channel = 3;
+  string client_version = 4;
+  string device_id = 5;
+  string platform_name = 6;
+}
+
+message ResRegister {
+enum ResultType {
+    OK = 0;
+    CHANNEL_MISMATCH = 1;
+    CLIENT_VERSION_MISMATCH = 2;
+    TIME_NOT_ALLOWED = 3;
+    ACCOUNT_NAME_ILLEGAL = 4;
+    PASSWORD_ILLEGAL = 5;
+    ACCOUNT_NAME_EXISTS = 6;
+    INSERT_DB_FAILED = 7;
+}
+}
+
+message ReqLogin {
+  string account_name = 1;
+  string password = 2;
+  string channel = 3;
+  string client_version = 4;
+  string device_id = 5;
+  string platform_name = 6;
+  string steam_ticket = 101;
+  string steam_identity = 102;
+  uint64 steam_id = 103;
+}
+
+message ResLogin {
+enum ResultType {
+    OK = 0;
+    CHANNEL_MISMATCH = 1;
+    CLIENT_VERSION_MISMATCH = 2;
+    NO_ACCOUNT = 3;
+    PASSWORD_NOT_MATCH = 4;
+    SURE_AGENT_FAILED = 5;
+    UPDATE_DB_FAILED = 6;
+    CODE_NOT_MATCH = 7;
+    BAN_ACCOUNT = 8;
+    STEAM_VERIFY_FAILED = 101;
+}
+  uint64 account_id = 1;
+  string key = 2;
+  int64 ban_seconds = 101;
+  uint64 ban_begin_seconds = 102;
+  uint64 ban_end_seconds = 103;
+  string ban_reason = 104;
+}
+
+message ReqRelogin {
+  uint64 account_id = 1;
+  string key = 2;
+}
+
+message ResRelogin {
+enum ResultType {
+    OK = 0;
+    NO_ACCOUNT = 1;
+    KEY_ERROR = 2;
+}
+}

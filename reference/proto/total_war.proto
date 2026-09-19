@@ -1,0 +1,138 @@
+// Reconstructed from proto.pb (Nornium/GHS client total_war.proto)
+syntax = "proto3";
+package ghs;
+import "common_fight.proto";
+import "character_list.proto";
+
+message TotalWarBossInfo {
+  uint32 boss_id = 1;
+  uint32 difficulty_value = 2;
+  uint32 score = 3;
+  repeated uint32 character_ids = 4;
+}
+
+message TotalWarCharacterInfo {
+  uint32 character_id = 1;
+  uint32 boss_id = 2;
+}
+
+message TotalWarRewardInfo {
+  uint32 schedule_id = 1;
+  uint32 rank = 2;
+  uint32 total_score = 3;
+  repeated uint32 params = 4;
+}
+
+message TotalWarInfo {
+  uint32 schedule_id = 1;
+  repeated ghs.TotalWarBossInfo boss_infos = 2;
+  repeated ghs.TotalWarCharacterInfo character_infos = 3;
+  uint32 fight_boss_id = 4;
+  ghs.FightInfo fight_info = 5;
+  repeated ghs.TotalWarRewardInfo reward_infos = 6;
+}
+
+message TotalWarRankRecordInfo {
+  uint64 record_id = 1;
+  uint32 boss_id = 2;
+  uint32 player_id = 3;
+  string player_name = 4;
+  uint32 avatar_id = 5;
+  uint32 score = 6;
+  repeated ghs.CharacterInfo character_infos = 7;
+}
+
+message TotalWarRankBossScoreItemInfo {
+  uint64 record_id = 1;
+  uint32 score = 2;
+}
+
+message TotalWarRankTotalScoreItemInfo {
+  repeated uint64 record_ids = 1;
+  uint32 score = 2;
+}
+
+message TotalWarRankBossScoreInfo {
+  uint32 boss_id = 1;
+  repeated ghs.TotalWarRankBossScoreItemInfo total_war_rank_boss_score_item_infos = 2;
+  uint32 self_rank = 3;
+}
+
+message TotalWarRankTotalScoreInfo {
+  repeated ghs.TotalWarRankTotalScoreItemInfo total_war_rank_total_score_item_infos = 1;
+  uint32 self_rank = 2;
+}
+
+message TotalWarRankInfo {
+  repeated ghs.TotalWarRankBossScoreInfo total_war_rank_boss_score_infos = 1;
+  ghs.TotalWarRankTotalScoreInfo total_war_rank_total_score_info = 2;
+  repeated bytes total_war_rank_record_infos = 3;
+  repeated uint32 total_war_rank_record_info_boss_ranks = 101;
+}
+
+message ReqTotalWar {
+}
+
+message ResTotalWar {
+enum ResultType {
+    OK = 0;
+    TOTAL_WAR_LOADED = 1;
+}
+  ghs.TotalWarInfo total_war_info = 1;
+}
+
+message ReqTotalWarFight {
+  uint32 boss_id = 1;
+  repeated uint32 character_ids = 2;
+}
+
+message ResTotalWarFight {
+enum ResultType {
+    OK = 0;
+    BOSS_ID_INVALID = 1;
+    CHARACTER_ID_INVALID = 2;
+}
+  uint64 fight_uuid = 1;
+}
+
+message ReqCompleteTotalWarFight {
+  bool result = 1;
+  uint32 damage = 2;
+  uint32 time_remain = 3;
+}
+
+message ResCompleteTotalWarFight {
+enum ResultType {
+    OK = 0;
+    NO_FIGHT = 1;
+    NOT_FIGHTING = 2;
+    SCHEDULE_ID_INVALID = 3;
+    IN_SETTLE = 4;
+}
+  uint32 new_score = 1;
+}
+
+message ReqTotalWarRank {
+}
+
+message ResTotalWarRank {
+enum ResultType {
+    OK = 0;
+}
+  ghs.TotalWarRankInfo total_war_rank_info = 1;
+  uint64 last_total_war_ranking_data_seconds = 2;
+}
+
+message ReqReceiveTotalWarReward {
+}
+
+message ResReceiveTotalWarReward {
+enum ResultType {
+    OK = 0;
+    NO_REWARD = 1;
+}
+}
+
+message NtfTotalWarAddReward {
+  repeated ghs.TotalWarRewardInfo reward_infos = 1;
+}

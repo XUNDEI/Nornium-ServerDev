@@ -1,0 +1,66 @@
+// Reconstructed from proto.pb (Nornium/GHS client mail_list.proto)
+syntax = "proto3";
+package ghs;
+import "item.proto";
+
+enum MailState {
+  MAIL_STATE_READABLE = 0;
+  MAIL_STATE_READED = 1;
+  MAIL_STATE_RECEIVED = 2;
+}
+
+message MailInfo {
+  uint64 send_seconds = 1;
+  uint64 mail_uuid = 2;
+  string title = 3;
+  string content = 4;
+  string type = 5;
+  repeated ghs.ItemInfo item_infos = 6;
+  ghs.MailState mail_state = 7;
+}
+
+message MailListInfo {
+  repeated ghs.MailInfo mail_infos = 1;
+}
+
+message ReqMailList {
+}
+
+message ResMailList {
+enum ResultType {
+    OK = 0;
+    BAG_NOT_LOADED = 1;
+    MAIL_LIST_LOADED = 2;
+}
+  ghs.MailListInfo mail_list_info = 1;
+}
+
+message ReqMailRead {
+  uint64 mail_uuid = 1;
+}
+
+message ResMailRead {
+enum ResultType {
+    OK = 0;
+    NO_MAIL = 1;
+    MAIL_STATE_INVALID = 2;
+}
+}
+
+message ReqMailReceive {
+  uint64 mail_uuid = 1;
+}
+
+message ResMailReceive {
+enum ResultType {
+    OK = 0;
+    NO_MAIL = 1;
+    MAIL_STATE_INVALID = 2;
+    NO_ITEMS = 3;
+}
+}
+
+message NtfMailList {
+  repeated ghs.MailInfo added_mail_infos = 1;
+  repeated uint64 removed_mail_uuids = 2;
+}

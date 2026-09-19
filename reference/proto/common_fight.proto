@@ -1,0 +1,14 @@
+// Reconstructed from proto.pb (Nornium/GHS client common_fight.proto)
+syntax = "proto3";
+package ghs;
+
+enum FightState {
+  FIGHT_STATE_IDLE = 0;
+  FIGHT_STATE_FIGHTING = 1;
+}
+
+message FightInfo {
+  uint64 fight_uuid = 1;
+  uint32 fight_level_id = 2;
+  ghs.FightState fight_state = 3;
+}

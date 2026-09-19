@@ -1,0 +1,52 @@
+// Reconstructed from proto.pb (Nornium/GHS client home.proto)
+syntax = "proto3";
+package ghs;
+
+message HomeFurnitureInfo {
+  uint32 item_id = 1;
+  string blob = 2;
+}
+
+message HomeFurnitureInteractInfo {
+  uint64 last_refresh_seconds = 1;
+  uint32 received_furniture_coin_from_interact = 2;
+}
+
+message HomeInfo {
+  repeated ghs.HomeFurnitureInfo home_furniture_infos = 1;
+  ghs.HomeFurnitureInteractInfo home_furniture_interact_info = 2;
+}
+
+message ReqHome {
+}
+
+message ResHome {
+enum ResultType {
+    OK = 0;
+    HOME_LOADED = 1;
+}
+  ghs.HomeInfo home_info = 1;
+}
+
+message ReqBuildHome {
+  repeated ghs.HomeFurnitureInfo home_furniture_infos = 1;
+}
+
+message ResBuildHome {
+enum ResultType {
+    OK = 0;
+    ITEM_NOT_ENOUGH = 1;
+}
+}
+
+message ReqReceiveFurnitureCoinFromInteract {
+  uint32 item_id = 1;
+}
+
+message ResReceiveFurnitureCoinFromInteract {
+enum ResultType {
+    OK = 0;
+    ITEM_NOT_ENOUGH = 1;
+    RECEIVE_LIMIT = 2;
+}
+}

@@ -1,0 +1,146 @@
+﻿return {
+	{
+		id = 1,
+		map = 11,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 3,
+		HideOverview = 0,
+		HideResources = 0,
+	},
+	{
+		id = 2,
+		map = 12,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 3,
+		HideOverview = 0,
+		HideResources = 0,
+	},
+	{
+		id = 3,
+		map = 13,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 3,
+		HideOverview = 0,
+		HideResources = 0,
+	},
+	[1000000] = {
+		id = 1000000,
+		map = 1000000,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1000101] = {
+		id = 1000101,
+		map = 1000101,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1000309] = {
+		id = 1000309,
+		map = 1000309,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 0,
+		HideResources = 0,
+	},
+	[1000111] = {
+		id = 1000111,
+		map = 1000111,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1000301] = {
+		id = 1000301,
+		map = 1000301,
+		universe = 110,
+		character = {
+			10501,
+			11202,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1000302] = {
+		id = 1000302,
+		map = 1000302,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1000601] = {
+		id = 1000601,
+		map = 1000601,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1001001] = {
+		id = 1001001,
+		map = 1001001,
+		universe = 110,
+		character = {
+			11202,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1001201] = {
+		id = 1001201,
+		map = 1001201,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+	[1001501] = {
+		id = 1001501,
+		map = 1001501,
+		universe = 110,
+		character = {
+			10501,
+		},
+		difficulty = 13,
+		HideOverview = 1,
+		HideResources = 1,
+	},
+}

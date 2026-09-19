@@ -1,0 +1,81 @@
+﻿return {
+	{
+		id = 1,
+		effectType = 1,
+		effectConfig = {
+			1,
+			0,
+		},
+	},
+	{
+		id = 2,
+		effectType = 2,
+		effectConfig = {
+			-15,
+			-15,
+			-15,
+			-15,
+			-15,
+			-15,
+			-15,
+		},
+	},
+	{
+		id = 3,
+		effectType = 3,
+		effectConfig = {
+			15,
+			15,
+			15,
+			15,
+			15,
+			15,
+			15,
+		},
+	},
+	{
+		id = 4,
+		effectType = 4,
+		effectConfig = {
+			1,
+			1,
+			1,
+			1,
+		},
+	},
+	{
+		id = 5,
+		effectType = 5,
+		effectConfig = {
+			0,
+			0,
+			0,
+			25,
+		},
+	},
+	{
+		id = 6,
+		effectType = 1,
+		effectConfig = {
+			0,
+			-1,
+		},
+	},
+	{
+		id = 7,
+		effectType = 9,
+		effectConfig = {
+			2,
+			2,
+			2,
+			2,
+		},
+	},
+	{
+		id = 8,
+		effectType = 10,
+		effectConfig = {
+			10,
+		},
+	},
+}

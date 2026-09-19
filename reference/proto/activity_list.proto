@@ -1,0 +1,52 @@
+// Reconstructed from proto.pb (Nornium/GHS client activity_list.proto)
+syntax = "proto3";
+package ghs;
+
+message ActivitySignInInfo {
+  uint32 sign_in_times = 1;
+  uint64 last_sign_in_seconds = 2;
+}
+
+message ActivityInfo {
+  uint32 activity_id = 1;
+  oneof activity_extra {
+    ghs.ActivitySignInInfo activity_sign_in_info = 101;
+  }
+}
+
+message ActivityListInfo {
+  repeated ghs.ActivityInfo activity_infos = 1;
+}
+
+message ReqActivityList {
+}
+
+message ResActivityList {
+enum ResultType {
+    OK = 0;
+    ACTIVITY_LIST_LOADED = 1;
+}
+  ghs.ActivityListInfo activity_list_info = 1;
+}
+
+message NtfActivityList {
+  repeated uint32 removed_activity_ids = 1;
+  repeated ghs.ActivityInfo changed_activity_infos = 2;
+}
+
+message ReqActivitySign {
+  uint32 activity_id = 1;
+}
+
+message ResActivitySign {
+enum ResultType {
+    OK = 0;
+    ACTIVITY_NOT_FOUND = 1;
+    ACTIVITY_INVISIBLE = 2;
+    LEVEL_NOT_ENOUGH = 3;
+    MISSING_KEY = 4;
+    ACTIVITY_INACTIVE = 5;
+    ACTIVITY_SIGNED = 6;
+}
+  uint64 last_sign_in_seconds = 1;
+}

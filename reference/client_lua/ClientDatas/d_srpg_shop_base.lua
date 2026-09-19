@@ -1,0 +1,106 @@
+﻿return {
+	{
+		id = 1,
+		itemNumber = 4,
+		itemList = {
+			1,
+			2,
+			3,
+			4,
+		},
+		refreshCost = {
+			2,
+			25,
+		},
+		nameId = 102000701,
+		txtId = 108200091,
+	},
+	{
+		id = 2,
+		itemNumber = 4,
+		itemList = {
+			3,
+			4,
+			5,
+			6,
+			1001,
+		},
+		refreshCost = {
+			2,
+			50,
+		},
+		nameId = 102000702,
+		txtId = 108200092,
+	},
+	{
+		id = 3,
+		itemNumber = 4,
+		itemList = {
+			7,
+			8,
+			9,
+			10,
+			11,
+			17,
+			18,
+			19,
+		},
+		refreshCost = {
+			2,
+			50,
+		},
+		nameId = 102000703,
+		txtId = 108200093,
+	},
+	{
+		id = 4,
+		itemNumber = 4,
+		itemList = {
+			20,
+			21,
+			22,
+			23,
+			24,
+			25,
+			26,
+		},
+		refreshCost = {
+			2,
+			50,
+		},
+		nameId = 102000704,
+		txtId = 108200094,
+	},
+	{
+		id = 5,
+		itemNumber = 1,
+		itemList = {
+			1102,
+		},
+		refreshCost = {
+			2,
+			100,
+		},
+		nameId = 102000705,
+		txtId = 108200095,
+	},
+	{
+		id = 6,
+		itemNumber = 6,
+		itemList = {
+			50,
+			51,
+			52,
+			53,
+			54,
+			55,
+			56,
+		},
+		refreshCost = {
+			2,
+			25,
+		},
+		nameId = 102000706,
+		txtId = 108200096,
+	},
+}

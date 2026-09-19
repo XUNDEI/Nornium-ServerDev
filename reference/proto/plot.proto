@@ -1,0 +1,83 @@
+// Reconstructed from proto.pb (Nornium/GHS client plot.proto)
+syntax = "proto3";
+package ghs;
+import "common_mission.proto";
+
+message PlotTreeInfo {
+  uint32 plot_tree_id = 1;
+  repeated uint32 received_award_ids = 2;
+}
+
+message PlotInfo {
+  repeated ghs.PlotTreeInfo plot_tree_infos = 1;
+  repeated ghs.CommonMissionInfo plot_mission_infos = 2;
+  repeated uint32 completed_mission_ids = 3;
+  uint32 plot_tree_id = 4;
+  uint32 plot_node_id = 5;
+  repeated uint32 node_completed_mission_ids = 6;
+  repeated uint32 unlocked_story_line_ids = 101;
+}
+
+message ReqPlot {
+}
+
+message ResPlot {
+enum ResultType {
+    OK = 0;
+    PLOT_LOADED = 1;
+}
+  ghs.PlotInfo plot_info = 1;
+}
+
+message ReqPlayPlotNode {
+  uint32 plot_tree_id = 1;
+  uint32 plot_node_id = 2;
+}
+
+message ResPlayPlotNode {
+enum ResultType {
+    OK = 0;
+    NO_NODE = 1;
+    MISSING_KEY = 2;
+}
+}
+
+message ReqCompletePlotMission {
+  uint32 mission_id = 1;
+}
+
+message ResCompletePlotMission {
+enum ResultType {
+    OK = 0;
+    NO_MISSION = 1;
+    CHECK_CONDITION_FAILED = 2;
+}
+}
+
+message ReqReceivePlotTreeAward {
+  uint32 plot_tree_id = 1;
+  uint32 award_id = 2;
+}
+
+message ResReceivePlotTreeAward {
+enum ResultType {
+    OK = 0;
+    RECEIVED = 1;
+    NEED_MORE_NODE = 2;
+}
+}
+
+message ReqUnlockStoryLine {
+  repeated uint32 story_line_ids = 1;
+}
+
+message ResUnlockStoryLine {
+enum ResultType {
+    OK = 0;
+    STORY_LINE_UNLOCKED = 1;
+}
+}
+
+message NtfAddPlotMission {
+  repeated ghs.CommonMissionInfo plot_mission_infos = 1;
+}

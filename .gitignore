@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+REVERSE_ENGINEERING.md
+
+# Runtime state — accounts and per-player saves are created by the server
+server/data/
+server/logs/
+server/logs_stdout.txt
+
+# 首次启动向导的产物（本机相关的游戏路径与自动拉起开关）
+server/runtime-config.json
+server/auto-launch.flag
+
+# Temporary / atomic-write leftovers
+*.tmp
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+.workbuddy/

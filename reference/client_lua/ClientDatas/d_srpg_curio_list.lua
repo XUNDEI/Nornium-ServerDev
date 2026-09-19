@@ -1,0 +1,128 @@
+﻿return {
+	{
+		id = 1,
+		isAvailable = {},
+		curioList = {
+			40002,
+			40004,
+			40005,
+		},
+	},
+	{
+		id = 2,
+		isAvailable = {},
+		curioList = {
+			40006,
+			40007,
+			40009,
+		},
+	},
+	{
+		id = 3,
+		isAvailable = {},
+		curioList = {
+			40013,
+			40014,
+			40016,
+		},
+	},
+	{
+		id = 4,
+		isAvailable = {},
+		curioList = {
+			40017,
+			40018,
+			40020,
+		},
+	},
+	{
+		id = 5,
+		isAvailable = {},
+		curioList = {
+			40021,
+			40022,
+			40023,
+		},
+	},
+	{
+		id = 6,
+		isAvailable = {},
+		curioList = {
+			40026,
+			40029,
+			40032,
+		},
+	},
+	{
+		id = 7,
+		isAvailable = {},
+		curioList = {
+			40033,
+			40034,
+			40035,
+		},
+	},
+	{
+		id = 8,
+		isAvailable = {},
+		curioList = {
+			40036,
+			40039,
+			40040,
+		},
+	},
+	{
+		id = 9,
+		isAvailable = {},
+		curioList = {
+			40041,
+			40042,
+			40043,
+		},
+	},
+	{
+		id = 10,
+		isAvailable = {},
+		curioList = {
+			40044,
+			40045,
+			40048,
+		},
+	},
+	{
+		id = 11,
+		isAvailable = {},
+		curioList = {
+			40049,
+			40050,
+			40052,
+		},
+	},
+	{
+		id = 12,
+		isAvailable = {},
+		curioList = {
+			40055,
+			40056,
+			40058,
+		},
+	},
+	{
+		id = 13,
+		isAvailable = {},
+		curioList = {
+			40059,
+			50014,
+			40014,
+		},
+	},
+	{
+		id = 14,
+		isAvailable = {},
+		curioList = {
+			40039,
+			40041,
+			40040,
+		},
+	},
+}

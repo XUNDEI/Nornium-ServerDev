@@ -1,0 +1,37 @@
+{
+  "name": "nornium-serverdev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unofficial local private-server reimplementation for the shut-down game Nornium (GHS)",
+  "license": "MIT",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "setup": "node setup.js",
+    "preflight": "node preflight.js",
+    "test": "node test/fake_client.js",
+    "test:furnace": "node test/furnace_check.js",
+    "test:plot": "node test/plot_check.js",
+    "test:daily": "node test/daily_check.js",
+    "test:universe": "node test/universe_check.js",
+    "test:newplayer": "node test/newplayer_check.js",
+    "test:console": "node test/console_check.js",
+    "test:fixes": "node test/verify_fixes.js",
+    "test:persistence": "node test/persistence_check.js"
+  },
+  "keywords": [
+    "nornium",
+    "ghs",
+    "private-server",
+    "game-server",
+    "reverse-engineering",
+    "protobuf"
+  ],
+  "dependencies": {
+    "des.js": "^1.1.0",
+    "protobufjs": "^8.8.0"
+  }
+}

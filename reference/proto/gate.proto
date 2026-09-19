@@ -1,0 +1,34 @@
+// Reconstructed from proto.pb (Nornium/GHS client gate.proto)
+syntax = "proto3";
+package ghs;
+
+message ReqPing {
+}
+
+message ResPing {
+}
+
+message NtfMsgKey {
+  // wire format: string 与 bytes 同为 length-delimited，客户端 lua-protobuf 按
+  // 原始字节读取。此处必须用 bytes：msg_key 是 DES 密文（任意字节），若用
+  // string，protobufjs 会做 UTF-8 编码，>0x7F 的字节变形导致客户端解密失败。
+  bytes msg_key = 1;
+}
+
+message NtfKick {
+enum ReasonType {
+    NONE = 0;
+    REPLACE = 1;
+    CLOSE_SERVER = 2;
+    PING_TIME_LIMIT = 3;
+    C_NO_ERROR = 4;
+    CMD_NOT_FOUND = 5;
+    BAN_ACCOUNT = 6;
+    MSG_ERROR = 7;
+    MSGCACHE_COUNT_LIMIT = 101;
+    MISSING_CONN_BEFORE_LOGIN = 102;
+    RECONNECT_TIME_LIMIT = 103;
+    MISSING_REQ_TIME_LIMIT = 104;
+}
+  ghs.NtfKick.ReasonType reason = 1;
+}
