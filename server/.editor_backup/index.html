@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>失乐星图 · 存档编辑器</title>
+<link rel="stylesheet" href="/editor/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🌌</text></svg>">
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════ 侧栏 ══════════ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">🌌</div>
+      <div>
+        <div class="brand-title">失乐星图</div>
+        <div class="brand-sub">存档编辑器</div>
+      </div>
+    </div>
+
+    <div class="server-card" id="serverCard">
+      <div class="server-row"><span class="dot" id="serverDot"></span><span id="serverStatus">正在连接…</span></div>
+      <div class="server-meta" id="serverMeta"></div>
+    </div>
+
+    <div class="sidebar-head">
+      <span>玩家存档</span>
+      <button class="icon-btn" id="refreshBtn" title="刷新列表">⟳</button>
+    </div>
+    <div class="account-list" id="accountList">
+      <div class="placeholder">加载中…</div>
+    </div>
+  </aside>
+
+  <!-- ══════════ 主区 ══════════ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="player-title">
+        <h1 id="playerName">选择左侧的存档</h1>
+        <div class="player-badges" id="playerBadges"></div>
+      </div>
+      <button class="btn primary save-btn" id="saveBtn" disabled>
+        保存修改 <span class="pill" id="pendingCount">0</span>
+      </button>
+    </header>
+
+    <nav class="tabs" id="tabs" hidden>
+      <button class="tab active" data-tab="overview">总览</button>
+      <button class="tab" data-tab="bag">背包</button>
+      <button class="tab" data-tab="chars">角色</button>
+      <button class="tab" data-tab="gacha">抽卡</button>
+      <button class="tab" data-tab="mall">商城</button>
+      <button class="tab" data-tab="plot">剧情</button>
+      <button class="tab" data-tab="backup">备份</button>
+      <button class="tab" data-tab="server">服务</button>
+    </nav>
+
+    <section class="content" id="content">
+      <div class="empty-hint">
+        <div class="empty-icon">🚀</div>
+        <p>从左侧选择一个玩家存档开始编辑<br><span class="dim">在线玩家的修改即时生效，无需重新登录</span></p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ══════════ 添加道具弹窗 ══════════ -->
+<div class="modal-mask" id="itemModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3>添加道具</h3>
+      <button class="icon-btn" data-close="itemModal">✕</button>
+    </div>
+    <input class="search" id="catalogSearch" placeholder="搜索道具名称 / ID…">
+    <div class="catalog-cats" id="catalogCats"></div>
+    <div class="catalog-list" id="catalogList"></div>
+    <div class="modal-foot" id="itemPickFoot" hidden>
+      <span id="itemPickName"></span>
+      <div class="stepper">
+        <button data-step="-1">−</button>
+        <input id="itemPickCount" type="number" min="1" value="1">
+        <button data-step="1">＋</button>
+      </div>
+      <button class="btn primary" id="itemPickAdd">加入清单</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 角色详情弹窗 ══════════ -->
+<div class="modal-mask" id="charModal" hidden>
+  <div class="modal" id="charModalBody"></div>
+</div>
+
+<!-- ══════════ 危险操作确认弹窗（清档 / 导入 / 停服） ══════════ -->
+<div class="modal-mask" id="confirmModal" hidden>
+  <div class="modal" id="confirmModalBody"></div>
+</div>
+
+<!-- ══════════ 服务端已停止的全屏遮罩 ══════════ -->
+<div class="stopped-mask" id="stoppedMask" hidden>
+  <div class="stopped-box">
+    <div class="stopped-icon">⏻</div>
+    <h2>服务端已停止</h2>
+    <p class="dim">游戏与存档编辑器现在都离线了。<br>
+      重新启动请双击仓库根目录的 <b>点我启动.bat</b>（或在 <code>server\</code> 下 <code>node index.js</code>）。</p>
+    <button class="btn primary" id="stoppedRecheck">重新检测</button>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="/editor/app.js"></script>
+</body>
+</html>

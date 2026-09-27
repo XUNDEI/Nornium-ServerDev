@@ -1,6 +1,6 @@
 {
   "name": "nornium-serverdev",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Unofficial local private-server reimplementation for the shut-down game Nornium (GHS)",
   "license": "MIT",
@@ -18,7 +18,13 @@
     "test:daily": "node test/daily_check.js",
     "test:universe": "node test/universe_check.js",
     "test:newplayer": "node test/newplayer_check.js",
+    "test:weapon": "node test/weapon_check.js",
+    "test:talent": "node test/talent_check.js",
+    "test:skins": "node test/skins_check.js",
     "test:console": "node test/console_check.js",
+    "test:editor": "node test/editor_check.js",
+    "test:editor-ui": "node test/editor_ui_check.js",
+    "test:setup": "node test/setup_check.js",
     "test:fixes": "node test/verify_fixes.js",
     "test:persistence": "node test/persistence_check.js"
   },

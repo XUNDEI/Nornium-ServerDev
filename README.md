@@ -44,7 +44,7 @@ Nornium 官方服务器已停止运营，官方客户端已无法进入游戏。
 ```
 Steam 启动客户端
    │
-   ├─ HTTP POST 127.0.0.1:8089/client/system/serverStatus   ← 登录门（返回 status=0）
+   ├─ HTTP POST 127.0.0.1:9089/client/system/serverStatus   ← 登录门（返回 status=0）
    │
    └─ TCP  127.0.0.1:8101                                   ← 游戏协议
         ├─ 服务端主动下发 ntf_msg_key（明文，DES 加密的会话密钥）
@@ -57,7 +57,8 @@ Steam 启动客户端
 | 端口 | 协议 | 用途 |
 |---|---|---|
 | `127.0.0.1:8101` | TCP | 游戏协议（帧 + DES + protobuf） |
-| `127.0.0.1:8089` | HTTP | 登录门、公告、走马灯、数据上报 |
+| `127.0.0.1:9089` | HTTP | 登录门、公告、走马灯、数据上报 |
+| `127.0.0.1:9089/editor` | HTTP | **网页存档编辑器**（浏览器打开，见下文） |
 
 ## 快速开始
 
@@ -82,6 +83,13 @@ Steam 启动客户端
 以后再双击就是秒开：路径缓存存在 `server/runtime-config.json`。想重新配置就删掉它，
 或者跑 `cd server && node setup.js --reset`。
 
+> **贡献注意**：`点我启动.bat` 是**纯 ASCII + CRLF、无 BOM**，请勿往里加中文。
+> cmd.exe 解析含多字节字符的批处理时会错位，凭空报一行
+> `'??' is not recognized as an internal or external command`（不影响功能，但很吓人）。
+> 一切用户可见文案放 `setup.js`（向导 + 第 1/2 步）与 `index.js`（服务端横幅）里打印；
+> `npm run test:setup` 会断言这条规矩。唯一例外是 `where node` 失败分支——
+> 那时还没有 Node 可用，只能写 ASCII 英文。
+
 > **提示**：游戏也必须从 Steam 启动——直接双击 exe 会被 Steamworks 校验拦下。
 > 「自动拉起」用的是 `steam://rungameid/2877160`；不想用了删掉 `server/auto-launch.flag`。
 
@@ -90,10 +98,23 @@ Steam 启动客户端
 在登录界面**任意输入账号 + 密码点注册**即可进入主城。
 （渠道必须是 `local_dev`；以 `_steam` 结尾的渠道会走 Steam 自动登录，无法用于私服。）
 
-### 3. 重置存档
+### 3. 重置存档 / 找回旧存档
 
-停服后删除 `server/data/` 目录即可；或者直接在**服务端窗口里输入 `restore` 回车**
+**重置**：停服后删除 `server/data/` 目录即可；或者直接在**服务端窗口里输入 `restore` 回车**
 （会先踢掉所有在线玩家，再清空存档，服务端继续运行）。
+`restore` 删之前会自动把原档快照到 `server\data_wipe_<时间戳>\`，误按了还能捞回来。
+
+**找回旧存档**：把备份整个目录的路径喂给 `load` 就行，不用手工拷文件：
+
+```bat
+:: 服务端窗口里输入（引号、结尾反斜杠、大小写都随意）
+load C:\Users\你\Desktop\Nornium_save_backup_2026-09-19
+```
+
+服务端会校验该目录（里面必须有 `accounts.json`；给备份目录的上一级也行，会自动进 `data\` 找）、
+把导入前的旧档快照到 `server\data_preimport_<时间戳>\`、再把 `accounts.json` 与
+`players\*.json` 覆盖进来并热加载。**导入是覆盖式而不是镜像式**：只覆盖备份里有的文件，
+不会删除当前目录里多出来的玩家档案。路径写错时会明确报错，不会静默什么都不做。
 
 ## 服务端控制台指令
 
@@ -101,14 +122,70 @@ Steam 启动客户端
 
 | 指令 | 作用 |
 |---|---|
-| `restore` | **清空本地存档**（accounts.json + players/ 全删），在线玩家全部踢下线，服务端继续运行。发布干净正式版用 |
+| `restore` | **清空本地存档**（accounts.json + players/ 全删），在线玩家全部踢下线，服务端继续运行。发布干净正式版用。清空前自动快照到 `data_wipe_*` |
 | `load` | **从磁盘重新加载存档**。把备份的 `accounts.json` / `players\*.json` 拷回 `server\data\` 后执行它即可热加载，不用重启 |
+| `load <备份目录>` | **直接把备份目录导入再热加载**，不用手工拷文件。导入前自动快照到 `data_preimport_*` |
+| `export [目录]` | **把当前存档整份导出**。带参数拷到指定目录；不带参数落到默认备份位置 `data_export_<时间戳>` |
+| `allweapons [账号\|all]` | **发放全部高稀有度武器**（已实装的 6★/7★ 每种各一把，共 36 把，入包后自行装备）。不带参数只发服主主档 |
+| `addchar <账号\|all> <角色id\|all>` | **给玩家添加角色**（含专属武器/技能/默认皮肤）。新号开局只发主角信风 + 小鱼（鱼啄雨），其余角色靠抽卡或这条指令补 |
+| `allskins [账号\|all]` | **解锁全部已拥有角色的全部皮肤**（战斗/机甲/主城，直接写存档，重登后到角色页「装扮」换） |
 | `stop` | 踢掉所有在线玩家并停止服务端（等同 Ctrl+C，但更优雅） |
 | `status` | 查看在线连接数与存档数量（账号/玩家档案） |
 | `help` | 指令列表 |
 
-注意：`restore` / `load` 都会先踢人再动文件（约 0.3 秒的断连等待），
-所以执行瞬间还挂着的客户端会被顶回登录界面，属于预期行为。
+注意：`restore` / `load` / `export` 会让服务端进入一个**短暂的维护窗口**（通常不到 1 秒）：
+先停止接受新连接、踢掉所有在线会话并**等它们真正断开**，再动存档文件，最后恢复监听。
+所以执行瞬间还挂着的客户端会被顶回登录界面，属于预期行为——如果此时游戏里显示连接失败，
+在登录界面重连即可（换档期间不会有旧会话把内存里的旧档写回去，这是刻意的）。
+
+> **存档安全**：`server\data_wipe_*` / `server\data_preimport_*` 是自动快照目录，
+> 已加进 `.gitignore`。要回滚任意一次操作，把里面的 `accounts.json` / `players\*.json`
+> 拷回 `server\data\` 再 `load` 即可。
+
+## 网页存档编辑器
+
+服务端运行时浏览器打开 **<http://127.0.0.1:9089/editor>**，就是一个带界面的存档编辑器
+（扁平圆角黑白配色，深浅主题可切换，深色主题在顶栏一键切换）：
+
+界面分成三块：**顶栏**（当前存档 + 在线状态 + 服务端状态 + 使用说明 `?` + 主题切换 +
+「待保存」+「保存修改」）、**左栏**（顶部的工作区切换 + 存档列表，带搜索）、**主区**。
+
+左栏顶部可以在两个**工作区**之间切换（同一个页面里换视图，不是两个割裂的前端）：
+
+- **存档管理**（默认）：存档列表 + 编辑标签页 + 存档备份
+  - **总览**：改昵称、直接改八种货币的数量
+  - **背包**：按分类筛选/搜索，改数量、删除、从道具目录里搜索添加；武器行还能直接改**等级 / 突破 / 光淬阶数**
+  - **角色**：一键添加全部角色；按**等级**（自动换算经验）或经验编辑角色；武器等级/突破/光淬；
+    一键发放高稀有度武器（已实装的 6★/7★ 每种各一把，可勾选「跳过已拥有的」）；
+    **发放命座（星位之钉）**——每个角色一件专属的钉，可单发或一键给全部角色发放；
+    也能「点亮星位」直接写档（跳过消耗与等级条件，含全部角色版）；卡片上会显示「星位 n/23 · 钉 ×k」；
+    **解锁皮肤**——单角色或全部角色的战斗/机甲/主城皮肤一键解锁（卡片显示「皮肤 n/m」），
+    也可以从背包目录的「皮肤」分类直接发皮肤卡道具（游戏内使用同样会解锁）
+  - **抽卡**：改各池保底计数（no_up_times）
+  - **商城**：改累充积分、月卡有效期
+  - **剧情**：只读查看主线进度
+  - **备份**：一键导出存档（默认位置或自定义路径）、查看历史快照
+- **服务器管理**（**不需要先选存档**）：
+  - **运行状态与运维**：服务端状态（版本/运行时长/在线数/端口/存档目录）、立即备份、
+    踢出所有在线玩家、从快照导入并热重载、清空全部存档、**停止服务端**（不用回到那个黑窗口按 Ctrl+C）
+
+**主页（还没选存档时）第一屏是服务器状态**：运行中/连不上、版本、在线连接、运行时长、
+账号/档案数、TCP/HTTP 端口、历史快照数与存档目录，下面才是「再从左侧选一个存档」的引导。
+左下角的**连接状态灯**：**绿 = 这一页连得上服务端，红 = 连不上或已停服**（整页黑白设计里
+唯一的彩色）。
+
+**上手只要三步**：左栏选一个存档 → 选一页改 → 点右上角「保存修改」。
+
+- 所有修改先进右上角的**待保存清单**（点「待保存」可以打开抽屉，逐条撤销或清空），
+  点「保存修改」一次性生效：目标账号在线时直接推送，游戏内**即时生效**（不用重登），
+  离线则写盘、重登后生效。改过的字段会标上「已修改」。
+- **有未保存的修改时不能直接切换存档**（会提示你先保存或清空），避免改动被静默丢弃。
+- 快捷键：`Ctrl`/`Cmd` + `S` 保存、`/` 聚焦搜索框、`Esc` 关闭弹窗/抽屉。
+- 仅限本机访问，无鉴权。
+
+> 「服务器管理」里的**清空存档**与**停止服务端**是危险操作：前者要求手输「清空存档」四个字
+> （服务端也会再校验一次），后者要求手输「停服」；清档前会自动留一份 `data_wipe_*` 快照，
+> 停服后重新开服请双击仓库根目录的 `点我启动.bat`。
 
 <details>
 <summary>想手动操作 / 不能双击 bat 时（点开看手工步骤）</summary>
@@ -124,7 +201,7 @@ npm start              :: 启动服务端
 
 `%LOCALAPPDATA%\Nornium\Saved\channel.lua`
 ```lua
-return {"local_dev", 8101, "127.0.0.1", "8089"}
+return {"local_dev", 8101, "127.0.0.1", "9089"}
 ```
 
 `%LOCALAPPDATA%\Nornium\Saved\version.lua`（第三项 `local_build = true` 跳过热更检查）
@@ -164,10 +241,10 @@ return {"1.0.1", "cb4_alpha_3_steam", true}
 | 里程碑 | 状态 | 内容 |
 |---|---|---|
 | M0 协议跑通 | ✅ | 登录门、密钥协商、注册/登录/重登、心跳、重复登录踢下线 |
-| M1 进入游戏 | ✅ | 13 项初始数据全应答；背包 `ntf_bag_info×N → res_bag`；新号 10 名初始角色；JSON 持久化 |
-| M2 肉鸽闭环 | `部分实现` | 六边形地图雾战揭示、`d_srpg_effect_trigger` 驱动的探索后果（事件/遭遇战/资源/卡牌三选一）、首领按 `appearTime` 计步出现且每回合向基地推进 1 格、建筑格（卡牌/蓝图）部署与晋升、卡牌三选一与奇物、局终结算、断线恢复 |
-| M3 抽卡与内购 | `部分实现` | 卡池概率/UP/软硬保底、create→confirm 两段式、叮、重复角色折算、NPC 商店、商城直购与累充 |
-| M4 剧情与其他 | `部分实现` | 主线剧情树与任务奖励、恶魔熔炉（炼金合成/分解/锻造）、每日危航（日常副本 `d_levels`）、家园家具摆放与交互、欢迎邮件、签到活动、困难关卡；`total_war` 安全空态 |
+| M1 进入游戏 | ✅ | 13 项初始数据全应答；背包 `ntf_bag_info×N → res_bag`；新号 2 名开局角色（主角信风 + 鱼啄雨，其余靠抽卡/指令）；JSON 持久化 |
+| M2 肉鸽闭环 | `部分实现` | 六边形地图雾战揭示（**隐藏格由 `ntf_main_pos_info` 交付、快照只发 `state>0`，坑 42**）、`d_srpg_effect_trigger` 驱动的探索后果（事件/遭遇战/资源/卡牌三选一）、首领按 `appearTime` 计步出现且每回合向基地推进 1 格、建筑格（卡牌/蓝图）部署与晋升、卡牌三选一与奇物、局终结算、断线恢复 |
+| M3 抽卡与内购 | `部分实现` | 卡池概率/UP/软硬保底、create→confirm 两段式、叮、重复角色折算（**含转【星位之钉】**与武器/家具的转化货币）、NPC 商店、商城直购与累充 |
+| M4 剧情与其他 | `部分实现` | 主线剧情树与任务奖励、恶魔熔炉（炼金合成/分解/锻造）、每日危航（日常副本 `d_levels`）、家园家具摆放与交互、欢迎邮件、签到活动、困难关卡；**星位（天赋/命座）解锁闭环**；`total_war` 安全空态 |
 
 ## 仓库结构
 
@@ -175,31 +252,39 @@ return {"1.0.1", "cb4_alpha_3_steam", true}
 ServerDev/
 ├── README.md                 本文件
 ├── 点我启动.bat           双击即全动：初始化 → 写客户端配置 → 起服务端 → 拉起游戏
+│                         （**纯 ASCII**：中文提示由 setup.js / index.js 打印，见「贡献注意」）
 ├── CHANGELOG.md              版本变更记录
 ├── NOTICE.md                 版权与免责声明
 ├── LICENSE                   代码许可（MIT，不含 reference/）
 ├── server/                   Node.js 服务端
-│   ├── index.js              入口：HTTP 8089 + TCP 8101
+│   ├── index.js              入口：HTTP 9089 + TCP 8101
 │   ├── setup.js              首次启动向导：定位游戏路径 + 写客户端配置
-│   ├── src/console.js        服务端控制台指令（restore / load / stop / status / help）
+│   ├── src/console.js        服务端控制台指令（restore / load [<备份目录>] / export [<目录>] / allweapons [<账号>] / addchar <账号> <角色id|all> / allskins [<账号>] / stop / status / help）
 │   ├── package.json
 │   ├── preflight.js          加密/协议预检脚本
 │   ├── runtime-config.json   向导产物（gitignore）：缓存的游戏路径
 │   ├── auto-launch.flag      向导产物（gitignore）：存在则自动拉起 Steam 游戏
+│   ├── data/                 存档（gitignore）：accounts.json + players/<id>.json
+│   ├── data_wipe_* / data_preimport_*   restore / load 自动留的快照（gitignore）
 │   ├── src/
 │   │   ├── crypt.js          DES-ECB + ISO 7816-4 填充
 │   │   ├── protos.js         protobufjs 加载 + cmd 反射映射
-│   │   ├── session.js        连接会话：帧编解码、密钥协商、FIFO 队列、心跳
+│   │   ├── session.js        连接会话：帧编解码、密钥协商、FIFO 队列、心跳、drainSessions 硬排空
 │   │   ├── gamedata.js       数据表加载/查询
-│   │   ├── store.js          存档原子写持久化
+│   │   ├── store.js          存档原子写持久化 + 备份/导入（snapshotData / resolveBackupSource / importData）
 │   │   ├── logger.js         日志
 │   │   ├── httpgate.js       HTTP 登录门
-│   │   ├── game/             领域逻辑：items / player_new / universe / gacha / shop / mall / daily
-│   │   └── handlers/         消息处理器：login / sync / character / universe / gacha / …
-│   └── test/                 协议自测（fake_client / persistence_check / verify_fixes / daily_check / universe_check / newplayer_check / console_check）
+│   │   ├── editorapi.js      网页存档编辑器（/editor 静态页 + API + 服务端管理接口）
+│   │   ├── game/             领域逻辑：items / player_new / universe / gacha / shop / mall / daily /
+│   │   │                     talent（星位/命座）/ growth（远航加点）/
+│   │   │                     arsenal（高稀有度武器发放）/ weapon_data（未实装武器黑名单）/ migrate
+│   │   └── handlers/         消息处理器：login / sync / character（含星位点亮）/ universe / gacha / …
+│   ├── editor/               编辑器前端（index.html + style.css + app.js，两个工作区，扁平圆角黑白主题，无构建步骤）
+│   └── test/                 协议自测（fake_client / persistence_check / verify_fixes / daily_check / universe_check / talent_check / newplayer_check / weapon_check / console_check / editor_check / editor_ui_check / setup_check）
 ├── tools/                    逆向辅助脚本
 │   ├── gen_proto.py          proto.pb → .proto 还原
-│   └── convert_gamedata.py   数据表 Lua → JSON 转换
+│   ├── convert_gamedata.py   数据表 Lua → JSON 转换
+│   └── check_weapon_assets.js 武器模型/图标/展示图与 pak 条目对照（列出未实装武器）
 └── reference/                逆向资产（只读，见 NOTICE.md）
     ├── client_lua/           客户端 Lua 源码（协议唯一权威）
     ├── gamedata/             109 张数据表 JSON（服务端运行时读取）
@@ -213,10 +298,11 @@ ServerDev/
 | 项 | 默认 | 说明 |
 |---|---|---|
 | TCP 端口 | `8101` | `server/index.js` 中的 `TCP_PORT` |
-| HTTP 端口 | `8089` | 同上 `HTTP_PORT` |
+| HTTP 端口 | `9089` | 同上 `HTTP_PORT` |
 | 监听地址 | `127.0.0.1` | 仅本机 |
 | `GHS_VERBOSE` | 未设置 | 设为 `1` 时日志输出每条消息的 protobuf 明文摘要 |
 | 存档目录 | `server/data/` | `accounts.json` + `players/<id>.json` |
+| 存档快照 | `server/data_wipe_*` / `data_preimport_*` | `restore` / `load <备份目录>` 自动留档，可删 |
 | 游戏路径缓存 | `server/runtime-config.json` | 首次启动向导生成，删掉即重新配置 |
 | 自动拉起游戏 | `server/auto-launch.flag` | 存在才拉起（`steam://rungameid/2877160`） |
 
@@ -230,20 +316,52 @@ npm test                        :: 全流程协议自测（fake_client.js，75+ 
 npm run test:furnace            :: 熔炉/存档迁移单测（无需启动服务端）
 npm run test:plot               :: 主线任务链（subTaskid 下发）/旧存档修复单测（无需启动服务端）
 npm run test:daily              :: 每日危航（日常副本）解锁/扣票/掉落/扫荡单测（无需启动服务端）
-npm run test:universe           :: 星图（肉鸽）地图绑定/建筑格附件/效果参数解读/新号教学链重放/首领波次与推进/存档迁移单测（无需启动服务端）
+npm run test:universe           :: 星图（肉鸽）地图绑定/建筑格附件/效果参数解读/新号教学链重放/首领波次与推进/存档迁移/格子下发不变量（快照只发 state>0、新格走 ntf_main_pos_info，坑 42）单测（无需启动服务端）
 npm run test:newplayer          :: 新号初始资源下限/突破材料齐全/邮件（含开源声明）与领取流程单测（无需启动服务端）
-npm run test:console            :: 服务端控制台指令 restore/load/stop/status 的行为单测（无需启动服务端）
+npm run test:weapon             :: 武器类型一致性/装备与交换的类型校验/uuid 去重迁移/装错武器的修复/未实装武器黑名单与替换单测（无需启动服务端）
+npm run test:talent             :: 星位（命座）解锁错误码/前置孔位/等级门/星位之钉消耗/写盘后重载仍在/抽卡重复角色转钉单测（无需启动服务端）
+npm run test:skins              :: 皮肤解锁/换装校验/开局角色/幽灵道具清理/帧率钉入单测（无需启动服务端）
+npm run test:console            :: 服务端控制台指令 restore/load/export/allweapons/addchar/allskins/stop/status + 参数校验单测（无需启动服务端）
+npm run test:editor             :: 存档编辑器 静态页/路径穿越防护/API/编辑操作/等级与光淬编辑/命座发放与星位点亮/服务端管理接口/导出单测（无需启动服务端）
+npm run test:editor-ui          :: 编辑器前端渲染回归（最小 DOM shim 跑 app.js：8 个标签页/工作区切换/主页服务器状态/状态灯红绿 CSS/武器练度输入框/角色弹窗与星位区块/服务器管理页/待保存抽屉/帮助与主题切换/黑白设计不变量，无需浏览器与服务端）
+npm run test:setup              :: 向导的游戏目录探测：路径归一化 + 候选目录不许自我重复（无需启动服务端）
 npm run test:fixes              :: 累充/抽卡保底/页签隐藏专项
-npm run test:persistence        :: 重启持久化（自行拉起/杀掉服务端，需先停手动实例）
+npm run test:persistence        :: 重启持久化（自行拉起/杀掉服务端，需先停手动实例；用临时存档目录）
 ```
 
 `fake_client.js` 完整模拟真实客户端的线协议（HTTP 门、TCP 帧、DES/ISO7816-4 填充、
 protobuf oneof、FIFO 请求配对），断言全绿表示服务端侧就绪；最终以真实客户端验收为准。
 
+> `persistence_check.js` 会自行拉起服务端进程，它现在通过 `GHS_DATA_DIR` 指向临时存档目录，
+> 不会写进你的 `server\data\`。**任何新增的、会拉起服务端进程或碰 `store.js` 的测试都必须
+> 照这个规矩来**——否则测试账号会混进玩家的真实存档里。
+
 ## 已知限制
 
 - 武器/防具升级、突破、精炼为宽松实现（不严格校验材料，状态会持久化）。
+  `req_weapon_refine` 目前实际**不消耗任何材料**（只把 `refine_level` +1，严格校验待补）。
+- 武器**装备/交换**是严格的：`d_bag_item_weapon.subType` 必须等于 `d_character.profession`
+  （客户端换武器界面的候选列表本来就是按「当前已装备武器的 `subType`」过滤的，装错类型就再也
+  换不回来），不匹配回 `INVALID_ITEM(3)`。旧存档里因 `item_uuid` 重复被装错的角色，
+  在登录加载时会自动换回背包里同类型最好的那把武器（私服兜底，见
+  `src/game/migrate.js` 的 `repairWeaponType`）。
+- 老存档的 `item_uuid` 重复（早期 `next_uuid` 计数被重置过）会在登录时自动去重
+  （`items.dedupeItemUuids`）；第一次出现的条目保留原 uuid，被遮蔽的副本重新发号。
+- **未实装武器**：客户端的 83 把武器里有 10 把是残件 —— pak 里既没有模型/图标/展示图，
+  其中 7 把连 `d_skill` 里的技能行都没有（`1081601 颂歌` 就在其中）。发给玩家会让武器详情
+  面板整个停摆（满屏「文本块…」占位符）。服务端一律不发放（`src/game/weapon_data.js` 黑名单），
+  旧存档里已有的会在登录时**原地**换成同类型已实装武器（只改 `item_id`，练度全保留，
+  `src/game/migrate.js` 的 `repairUnreleasedWeapons`）。编辑器目录里这些武器标着「未实装」。
+- **6★ 与 7★ 武器数值完全相同**：这是官方 alpha 数据的遗留（`d_weapon_level` 的 `exp6`/`exp7`
+  逐行相等，属性字段也全等）。客户端属性是本地按 `d_weapon` 算的，服务端改不动显示数值，
+  想真正区分只能重打包客户端数据表。
 - 恶魔熔炉的炼金合成、分解、锻造已实现；锻造的 `feed_item_uuid` 仅接受不消耗（不生成随机词条）。
+- **星位（天赋 / 命座）**：解锁闭环已实现（按 `d_character_inborn` 校验前置孔位/等级/【星位之钉】，
+  写 `characters[].talent_ids` 并持久化），抽卡重复角色也会按官方口径转化为对应角色的钉
+  （第 2~7 次给钉 + 珊瑚劫灰，第 8 次起只给珊瑚劫灰）。星位的**属性加成与战斗效果由客户端本地计算**，
+  服务端只记录「哪些星位已点亮」；数据表里只有「角色等级」与「消耗道具」两类解锁条件，
+  其它条件类型没有实现分支（真出现会放行，客户端 UI 本来就会拦）。
+  拿不到钉的老号可以在编辑器「角色」页一键发放（见上文）。
 - `total_war`（总力战）战斗仅返回安全错误码，未实现战斗闭环。
 - 日常副本（每日危航）已实现完整闭环，含官方「每天 04:00 发放 6 张危航许可」的每日重置；
   官方同批发出的 4 个日常任务的每日刷新尚未实现（`d_task` 任务目前常驻可做）。

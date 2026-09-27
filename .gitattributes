@@ -1,6 +1,11 @@
 # Normalize text files across platforms; keep known binaries untouched.
 * text=auto
 
+# 启动器必须纯 ASCII（cmd.exe 解析含多字节字符的 .bat 会错位）+ CRLF，
+# 见 REVERSE_ENGINEERING 坑 36；server/test/setup_check.js 会断言。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 *.pak binary
 *.pb binary
 *.png binary

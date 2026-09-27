@@ -21,7 +21,7 @@ npm start
 
 `setup.js` 会自动定位《失乐星图》的安装目录（Steam 注册表 → `libraryfolders.vdf`
 → 常见盘符扫描，找不到才请你输入路径），然后把
-`return {"local_dev", 8101, "127.0.0.1", "8089"}` 写入
+`return {"local_dev", 8101, "127.0.0.1", "9089"}` 写入
 `%LOCALAPPDATA%\Nornium\Saved\channel.lua`，同目录 `version.lua` 写
 `return {"1.0.1", "cb4_alpha_3_steam", true}`(第三项 `local_build=true` 跳过热更检查)，
 **不需要手工拷文件**。
@@ -55,10 +55,10 @@ stdin 直通；`npm start` 也可以）。实现见 `src/console.js`：
 启动后同时监听：
 
 - **TCP 127.0.0.1:8101** —— 游戏协议（帧格式 + DES 会话加密 + protobuf `ghs.Msg` oneof 总线）
-- **HTTP 127.0.0.1:8089** —— 登录门（`/client/system/serverStatus`、公告、走马灯、上报）
+- **HTTP 127.0.0.1:9089** —— 登录门（`/client/system/serverStatus`、公告、走马灯、上报）
 
 客户端需在 `%LOCALAPPDATA%\Nornium\Saved\channel.lua` 写入
-`return {"local_dev", 8101, "127.0.0.1", "8089"}`，并从 Steam 启动游戏。
+`return {"local_dev", 8101, "127.0.0.1", "9089"}`，并从 Steam 启动游戏。
 这一步已由首启向导 `setup.js` 自动完成（见上文）。
 
 ## 脚本
@@ -72,7 +72,12 @@ stdin 直通；`npm start` 也可以）。实现见 `src/console.js`：
 | `npm run test:furnace` | 熔炉（炼金/分解/锻造）与存档迁移单测（无需服务端） |
 | `npm run test:daily` | 每日危航解锁/扣票/掉落/扫荡单测（无需服务端） |
 | `npm run test:newplayer` | 新号初始资源 / 邮件（含开源防骗声明）单测（无需服务端） |
+| `npm run test:universe` | 星图（肉鸽）地图/建筑格/首领波次/效果参数/教学链/迁移单测（无需服务端） |
+| `npm run test:weapon` | 武器类型一致性 / uuid 去重迁移 / 未实装武器替换单测（无需服务端） |
+| `npm run test:talent` | 星位（命座）解锁错误码 / 钉消耗 / 写盘后重载仍在 / 抽卡重复角色转钉单测（无需服务端） |
 | `npm run test:console` | 控制台指令 restore/load/stop/status 行为单测（无需服务端） |
+| `npm run test:editor` | 存档编辑器 API / 编辑操作 / 命座发放 / 服务端管理接口单测（无需服务端） |
+| `npm run test:editor-ui` | 编辑器前端渲染回归（最小 DOM shim 跑 app.js，无需浏览器与服务端） |
 | `npm run test:persistence` | 重启持久化测试（自行拉起/杀掉服务端，先停手动实例） |
 
 `test/fake_client.js` 完整模拟真实客户端的线协议（HTTP 门、TCP 帧、DES/ISO7816-4 填充、
@@ -93,7 +98,7 @@ server/
     session.js             连接会话：帧编解码、密钥协商、FIFO 请求队列、心跳
     gamedata.js            reference/gamedata/*.json 加载与查询（数字键字符串化兼容）
     store.js               data/accounts.json + data/players/<id>.json 原子写持久化
-    httpgate.js            8089 登录门
+    httpgate.js            9089 登录门
     game/                  领域逻辑：items(背包/货币)、player_new(新号)、universe(肉鸽)、gacha、shop、mall
     handlers/              消息处理器：login、sync(13 项初始数据)、character、social(剧情/邮件/活动/杂项)、
                            universe、gacha、shop、mall、index(分发与未知消息兜底)

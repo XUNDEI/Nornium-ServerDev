@@ -209,4 +209,32 @@ function liveSessionCount() {
   return n;
 }
 
-module.exports = { Session, attachServer, trackSession, kickAllSessions, liveSessionCount };
+// 硬排空：kick 掉所有在线连接，并**等到它们真的 closed**，而不是固定 sleep 一个猜出来的
+// 毫秒数。控制台 load/restore 要动磁盘上的存档，必须确保此刻已经不存在任何持有旧 doc 的
+// 会话——残余会话的 savePlayer 会把内存里的整份旧档写回磁盘，覆盖刚恢复的档
+// （另外 handlers/index.js 的 dailyTick 是 60s 定时器，也会 savePlayer，固定窗口挡不住）。
+//
+// 返回 { kicked, remaining }；remaining > 0 表示有连接卡着没断，调用方应当**放弃本次
+// 存档操作**而不是硬上。drain 只负责连接，停止 accept 由调用方负责（见 index.js
+// 的 withMaintenance），因为监听套接字归 index.js 管。
+async function drainSessions({ timeoutMs = 3000 } = {}) {
+  const kicked = kickAllSessions(1);
+  const deadline = Date.now() + timeoutMs;
+  while (liveSessionCount() > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  if (liveSessionCount() > 0) {
+    // kick 是 100ms 后才 destroy socket，卡住不走到这里就直接强断再等一轮
+    log.warn(`[drain] ${liveSessionCount()} session(s) still open - forcing close`);
+    for (const s of [...liveSessions]) s.close();
+    const hard = Date.now() + 1000;
+    while (liveSessionCount() > 0 && Date.now() < hard) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+  return { kicked, remaining: liveSessionCount() };
+}
+
+module.exports = {
+  Session, attachServer, trackSession, kickAllSessions, liveSessionCount, drainSessions,
+};

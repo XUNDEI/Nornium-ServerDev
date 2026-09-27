@@ -10,7 +10,7 @@ const DES = require('des.js').DES;
 
 const HOST = '127.0.0.1';
 const TCP_PORT = 8101;
-const HTTP_PORT = 8089;
+const HTTP_PORT = 9089;
 
 const log = (...a) => console.log('[client]', ...a);
 let failures = 0;
@@ -281,10 +281,19 @@ async function main() {
   check(hl?.hard_level_info?.fight_info != null, 'res_hard_level has fight_info');
   c.send('req_character_list');
   const chars = (await c.wait('res_character_list')).msg.character_list_info.character_infos;
-  check(chars.length === 10, `res_character_list ${chars.length} characters`);
+  // v0.2.0 起：新号只发开局二人组（主角信风 10501 + 小鱼鱼啄雨 11202，全部剧情星图的
+  // 角色表就这两个人），不再一股脑发全部可玩角色；其余角色走抽卡 / 控制台 addchar / 编辑器。
+  check(chars.length === 2, `res_character_list ${chars.length} starter characters (10501/11202)`);
+  check([10501, 11202].every((id) => chars.some((ch) => num(ch.character_id) === id)),
+    'starter roster is exactly 信风(10501) + 鱼啄雨(11202)');
   check(!chars.some((ch) => num(ch.character_id) === 24002),
     'dev placeholder character 24002 not granted');
   check(chars.every((ch) => ch.weapon_info && num(ch.weapon_info.item_uuid) > 0), 'every character has a weapon');
+  // 默认皮肤（d_char_clothes.dressInitial==1）必须已在解锁列表里，否则装扮面板连
+  // 初始服装都是锁着的（客户端把「默认即解锁」的分支注释掉了）。
+  check(chars.every((ch) => (ch.own_character_skin_ids || []).length > 0
+    && (ch.own_mecha_skin_ids || []).length > 0 && (ch.own_city_skin_ids || []).length > 0),
+    'default skins pre-unlocked for every starter character');
 
   // ---------- character level up must persist across a list reload ----------
   // Regression: stackable materials used to share item_uuid 0, so the server
@@ -320,6 +329,100 @@ async function main() {
   check(num((bag2.find((i) => i.item_id === 1203001) || {}).count) === 998, 'exp material decremented to 998');
   check(num((bag2.find((i) => i.item_id === 9001) || {}).count) === goldBefore, 'gold untouched by level up');
 
+  // ---------- 皮肤：皮肤卡「使用」→ 解锁 → 换装，全程服务端落盘 ----------
+  // 皮肤卡（itemType 92）的 subParam 是 d_char_clothes 的皮肤 id（4050101 →
+  // [1050101 战斗, 2050101 机甲, 3050101 主城]，全归主角信风 10501）。客户端在
+  // res_use_item OK 后只做**本地**插入，持久化必须由服务端完成 —— 过去服务端把
+  // subParam 当道具 id 发放（幽灵道具），皮肤永远锁着。
+  {
+    // GM 指令塞一张皮肤卡进背包（真服务端口径）
+    c.send('req_gm_cmd', { cmd: 'add_item 4050101 1' });
+    await c.wait('res_gm_cmd');
+    c.send('req_bag');
+    let bag3 = [];
+    const offBag3 = c.onAny((name, result, msg) => {
+      if (name === 'ntf_bag_info') bag3 = bag3.concat(msg.bag_info.item_infos);
+    });
+    await c.wait('res_bag');
+    offBag3();
+    const skinCard = bag3.find((i) => i.item_id === 4050101);
+    check(skinCard && num(skinCard.item_uuid) > 0, 'skin card 4050101 granted into bag');
+
+    c.send('req_use_item', { item_uuid: skinCard.item_uuid, count: 1 });
+    check((await c.wait('res_use_item')).result === 0, 'res_use_item skin card ok');
+
+    c.send('req_character_list');
+    const charsAfterSkin = (await c.wait('res_character_list')).msg.character_list_info.character_infos;
+    const mecha101 = charsAfterSkin.find((ch) => num(ch.character_id) === 10501);
+    const own = (id) => ['own_character_skin_ids', 'own_mecha_skin_ids', 'own_city_skin_ids']
+      .some((k) => (mecha101[k] || []).some((x) => num(x) === id));
+    check(own(1050101) && own(2050101) && own(3050101),
+      'skin unlock persisted on character 10501 (battle/mecha/city)');
+
+    // 换装：已解锁 → OK；未解锁 → NO_SKIN(3)；0 = 恢复默认 → OK
+    c.send('req_character_change_skin', { character_id: 10501, character_skin_id: 1050101, mecha_skin_id: 2050101, city_skin_id: 3050101 });
+    check((await c.wait('res_character_change_skin')).result === 0, 'wear unlocked skins -> OK');
+    c.send('req_character_change_skin', { character_id: 10501, character_skin_id: 1050102 });
+    check((await c.wait('res_character_change_skin')).result === 3, 'wear locked skin -> NO_SKIN(3)');
+    c.send('req_character_change_skin', { character_id: 10501, character_skin_id: 0 });
+    check((await c.wait('res_character_change_skin')).result === 0, 'reset to default (0) -> OK');
+    c.send('req_character_list');
+    const charsFinal = (await c.wait('res_character_list')).msg.character_list_info.character_infos;
+    const mechaFinal = charsFinal.find((ch) => num(ch.character_id) === 10501);
+    check(num(mechaFinal.character_skin_id) === 0, 'skin reset persisted (character_skin_id back to 0)');
+
+    // 角色卡使用 → 创建角色（过去会把 subParam[1] 的角色 id 当道具 id 塞进背包）。
+    // 6010201 = 角色 10102（仿钻折光幻形 2）的角色卡 —— 开局三人小队里没有 10102。
+    c.send('req_gm_cmd', { cmd: 'add_item 6010201 1' });
+    await c.wait('res_gm_cmd');
+    c.send('req_bag');
+    let bag4 = [];
+    const offBag4 = c.onAny((name, result, msg) => {
+      if (name === 'ntf_bag_info') bag4 = bag4.concat(msg.bag_info.item_infos);
+    });
+    await c.wait('res_bag');
+    offBag4();
+    const charCard = bag4.find((i) => i.item_id === 6010201);
+    check(charCard && num(charCard.item_uuid) > 0, 'char card 6010201 granted into bag');
+    c.send('req_use_item', { item_uuid: charCard.item_uuid, count: 1 });
+    check((await c.wait('res_use_item')).result === 0, 'res_use_item char card ok');
+    c.send('req_character_list');
+    const charsAfterCard = (await c.wait('res_character_list')).msg.character_list_info.character_infos;
+    check(charsAfterCard.some((ch) => num(ch.character_id) === 10102),
+      'char card 6010201 unlocked character 10102');
+  }
+
+  // ---------- 星位（命座）解锁必须落盘，并在重拉角色列表后仍在 ----------
+  // Regression: req_character_unlock_talent 过去没有处理器，dispatcher 的兜底分支回了一个
+  // **空的** res（帧头 result 默认 0 = OK），于是客户端本地把星位点亮、材料也扣了，
+  // 而服务端一个字节都没写 —— 重启/重登后星位全没（玩家的「星位升级后不保存」）。
+  // 断言的是**线协议层**：真发这个 req、真看 result 码、真重拉 res_character_list。
+  {
+    const inborn = JSON.parse(require('fs').readFileSync(
+      path.join(__dirname, '..', '..', 'reference', 'gamedata', 'd_character_inborn.json'), 'utf8'));
+    const talChar = charsReload.find((ch) => ch.weapon_info);
+    const rows = Object.values(inborn)
+      .filter((r) => num(r.roleID) === num(talChar.character_id))
+      .sort((a, b) => num(a.hole) - num(b.hole));
+    const rootId = num(rows.find((r) => num(r.frontHole) === 0).id);
+    const nailHoleId = num(rows.find((r) => num(r.hole) === 2).id);
+
+    c.send('req_character_unlock_talent', { character_id: talChar.character_id, talent_id: rootId });
+    check((await c.wait('res_character_unlock_talent')).result === 0,
+      `res_character_unlock_talent ok（角色 ${num(talChar.character_id)} 的根星位 ${rootId}）`);
+
+    // 新号背包里没有星位之钉 → 命座孔必须报 STUFF_NOT_ENOUGH(6)，而不是空 OK
+    c.send('req_character_unlock_talent', { character_id: talChar.character_id, talent_id: nailHoleId });
+    check((await c.wait('res_character_unlock_talent')).result === 6,
+      '命座孔没有星位之钉 → STUFF_NOT_ENOUGH(6)');
+
+    c.send('req_character_list');
+    const charsAfterTal = (await c.wait('res_character_list')).msg.character_list_info.character_infos;
+    const talReload = charsAfterTal.find((ch) => num(ch.character_id) === num(talChar.character_id));
+    check((talReload.talent_ids || []).map(num).includes(rootId),
+      `talent_ids persisted on reload（[${(talReload.talent_ids || []).map(num).join(',')}]）`);
+  }
+
   c.send('req_plot');
   const plot = (await c.wait('res_plot')).msg;
   check(plot?.plot_info && plot.plot_info.plot_tree_id === 0, 'res_plot fresh (0/0)');
@@ -345,12 +448,18 @@ async function main() {
   check((await c.wait('res_ping')).result === 0, 'ping roundtrip');
 
   // ---------- M2: universe run ----------
-  const team = [10101, 10201, 10301];
+  const team = [10501, 11202]; // 开局二人组（真实客户端只会带已拥有的角色进图）
   c.send('req_new_universe', { difficulty_value: 1, main_planet_id: 110, map_type: 1, character_ids: team });
   const nu = await c.wait('res_new_universe');
   check(nu.result === 0 && nu.msg.universe_info.main_pos_infos.length > 0,
     `res_new_universe ${nu.msg?.universe_info?.main_pos_infos?.length} cells`);
   const ui = nu.msg.universe_info;
+  // 快照过滤（坑 42）：初始快照只含 state > 0 的格子——state 0 的格子客户端只会
+  // 整只隐藏，之后永远等不到让它出现的消息
+  check(ui.main_pos_infos.length > 0 && ui.main_pos_infos.every((m) => num(m.state) > 0),
+    `res_new_universe snapshot filtered to visible cells (${ui.main_pos_infos.length} cells)`);
+  const tr = posTracker(c);
+  tr.ingest('res_new_universe', nu.msg);
   check(ui.universe_fight_data && ui.universe_fight_data.character_fight_datas.length === 3,
     'universe_fight_data present with 3 slots');
   check(num(ui.universe_fight_data.character_fight_datas[0].cur_hp) > 0, 'first character has positive HP');
@@ -372,7 +481,7 @@ async function main() {
   });
   // explore battle cells (5xx) until a fight appears
   for (let tries = 0; tries < 12 && !fightInfo; tries++) {
-    const cur = await currentUniverse(c);
+    const cur = await currentUniverse(c, tr);
     const next = cur.main_pos_infos.find((m) => m.state === 2);
     if (!next) break;
     c.send('req_explore', { hex: next.hex });
@@ -402,7 +511,7 @@ async function main() {
   }
 
   // card select may have appeared after the win
-  const cardSelect = await currentUniverse(c);
+  const cardSelect = await currentUniverse(c, tr);
   const sel = cardSelect.cards_for_selects?.[0];
   if (sel) {
     c.send('req_choose_card', { select_uuid: sel.select_uuid, index: 0 });
@@ -415,7 +524,7 @@ async function main() {
 
   // boss fight to clear the run — boss 11 has appearTime [2], so it only exists
   // after the second exploration step
-  const beforeBoss = await currentUniverse(c);
+  const beforeBoss = await currentUniverse(c, tr);
   check(beforeBoss.boss_infos.length >= 1,
     `boss wave 0 appeared once its appearTime step was reached (${beforeBoss.boss_infos.length} live)`);
   const bossIdx = beforeBoss.boss_infos[0]?.boss_index ?? 0;
@@ -430,7 +539,7 @@ async function main() {
   // boss 11 has path [101] (single wave) → the run is cleared instead of the boss
   // being replaced, which is what lets the 「败者首领」 banner disappear
   await sleep(100);
-  const clearOrWave = await currentUniverse(c);
+  const clearOrWave = await currentUniverse(c, tr);
   console.log('  [info] after boss win: bosses =', clearOrWave ? clearOrWave.boss_infos.length : 'universe cleared');
   // finish remaining waves if any
   let guard = 0;
@@ -442,8 +551,13 @@ async function main() {
     c.send('req_complete_boss_fight', { boss_index: b2, result: true, universe_fight_data: {} });
     await c.wait('res_complete_boss_fight');
     await sleep(50);
-    clearOrWave = await currentUniverse(c);
+    clearOrWave = await currentUniverse(c, tr);
   }
+  // 探索循环 + 首领波次的线序对拍（坑 42）：新格一定由 ntf_main_pos_info 交付、
+  // state_change/boss_info 只指向已知 hex
+  check(tr.state.sawInfo, `exploring delivered ${tr.state.infos} brand-new cell(s) via ntf_main_pos_info`);
+  check(tr.state.orderOK, 'every pos/boss frame respected the client-known-cell invariant');
+  tr.off();
 
   // ---------- M3: gacha ----------
   c.send('req_gacha_create', { list_id: 1, times: 10 });
@@ -589,6 +703,7 @@ async function main() {
   c.send('req_new_universe', { difficulty_value: 2, main_planet_id: 110, map_type: 1, character_ids: team });
   const nu2 = await c.wait('res_new_universe');
   check(nu2.result === 0, 'second run started');
+  tr.ingest('res_new_universe', nu2.msg); // 新一局：快照重建已知集合
 
   const c2 = new Client();
   await c2.connect();
@@ -596,11 +711,15 @@ async function main() {
   c2.sessionKey = dec(Buffer.from('kueisoon'), Buffer.from(key2.msg.msg_key, 'latin1'));
   c2.send('req_relogin', { account_id: login.msg.account_id, key: login.msg.key });
   check((await c2.wait('res_relogin')).result === 0, 'res_relogin ok');
+  const tr2 = posTracker(c2);
   c2.send('req_universe');
   const restore = await c2.wait('res_universe');
+  tr2.ingest('res_universe', restore.msg);
   check(restore.result === 0 && restore.msg.universe_info.main_pos_infos.length > 0
     && restore.msg.universe_info.universe_fight_data.character_fight_datas.length === 3,
     'universe restored after relogin');
+  check(restore.msg.universe_info.main_pos_infos.every((m) => num(m.state) > 0),
+    `relogin snapshot filtered to visible cells (${restore.msg.universe_info.main_pos_infos.length} cells)`);
 
   // ---------- 星图：具体地图绑定与切换角色定价（坑 25）----------
   // 一局必须「一行到底」：六边形布局、boss、初始资源、切换角色价格都取自同一行
@@ -616,11 +735,16 @@ async function main() {
 
   c2.send('req_new_universe_specific', { specific_id: STORY_SPECIFIC });
   const nus = await c2.wait('res_new_universe_specific');
+  tr2.ingest('res_new_universe_specific', nus.msg);
   check(nus.result === 0 && num(nus.msg.universe_info.map_id) === storyMap,
     `res_new_universe_specific bound to map ${storyMap}`);
-  check(nus.msg.universe_info.main_pos_infos.length === storyCells,
-    `specific run lays out its own ${storyCells} hexes `
-    + `(got ${nus.msg.universe_info.main_pos_infos.length})`);
+  // 快照过滤（坑 42）：剧情图 24 格里开局只有被揭示的几格会下发（全部 state>0），
+  // 隐藏格等探索时的 ntf_main_pos_info 才「出现」
+  check(nus.msg.universe_info.main_pos_infos.length > 0
+    && nus.msg.universe_info.main_pos_infos.length < storyCells
+    && nus.msg.universe_info.main_pos_infos.every((m) => num(m.state) > 0),
+    `specific run lays out its own map, snapshot filtered to state>0 `
+    + `(${nus.msg.universe_info.main_pos_infos.length}/${storyCells} hexes)`);
 
   // 建筑格必须挂上 main_pos_card_pos_info，客户端才会渲染「管理」选项
   // （UI_Menu_C:1370 只遍历 main_pos_attach_infos）。教学星图的三个「建筑格」是
@@ -632,18 +756,33 @@ async function main() {
     `the story map exposes 3 building slots for 「部署1个建筑」 (got ${storySlots.length})`);
   check(storySlots.every((m) => num(m.main_pos_attach_infos[0].main_pos_card_pos_info.card_pos_id) === 3),
     'story maps use the free-recall card slot (d_srpg_card_pos 3 / recallCost [2,0])');
-  const storyShops = nus.msg.universe_info.main_pos_infos
-    .map((m) => (m.main_pos_attach_infos || []).find((a) => a.main_pos_shop_info))
-    .filter(Boolean);
-  check(storyShops.length === 2 && storyShops.every((a) => num(a.main_pos_shop_info.shop_id) === 1),
-    `the story map's two merchant cells carry a shop (got ${storyShops.length})`);
+  // 开局快照里两个游商格还是隐藏格（state 0）——沿轨道探索几步，它们必须由
+  // ntf_main_pos_info「造」出来并带着 main_pos_shop_info（坑 42 的真实客户端路径）
+  let storyGuard = 0;
+  let revealedShops = [];
+  while (revealedShops.length < 2 && storyGuard++ < 15) {
+    const cur = await currentUniverse(c2, tr2);
+    if (!cur) break;
+    const next = cur.main_pos_infos.find((m) => m.state === 2);
+    if (!next) break;
+    c2.send('req_explore', { hex: next.hex });
+    const r = await c2.wait('res_explore');
+    if (r.result !== 0) break;
+    revealedShops = (await currentUniverse(c2, tr2)).main_pos_infos
+      .map((m) => (m.main_pos_attach_infos || []).find((a) => a.main_pos_shop_info))
+      .filter(Boolean);
+  }
+  check(revealedShops.length === 2 && revealedShops.every((a) => num(a.main_pos_shop_info.shop_id) === 1),
+    `exploring reveals both merchant cells with shop 1 (got ${revealedShops.length})`);
+  check(tr2.state.sawInfo, `story exploration delivered ${tr2.state.infos} brand-new cell(s) via ntf_main_pos_info`);
+  check(tr2.state.orderOK, 'story pos frames respected the client-known-cell invariant');
 
   // 换一次角色：服务端扣的量必须等于客户端拿来算价的那张表
   const deltas = [];
   const offUni = c2.onAny((name, _r, msg) => {
     if (name === 'ntf_universe_info') deltas.push((msg.res_value || []).map(num));
   });
-  c2.send('req_universe_change_character', { character_id: 10101, character_index: 0 });
+  c2.send('req_universe_change_character', { character_id: 11202, character_index: 0 }); // 换成已拥有的鱼啄雨
   const cc = await c2.wait('res_universe_change_character');
   await sleep(80);
   offUni();
@@ -656,13 +795,14 @@ async function main() {
   // 付费地图相反：必须真的按表收费，收不动时回 4（而不是默默放行/多收）
   c2.send('req_new_universe', { difficulty_value: 1, main_planet_id: 110, map_type: 1, character_ids: team });
   const paidUi = (await c2.wait('res_new_universe')).msg.universe_info;
+  tr2.ingest('res_new_universe', { universe_info: paidUi }); // 新一局：快照重建已知集合
   const paidMap = num(paidUi.map_id);
   const paidCost = gd.query('d_srpg_map_base', paidMap).substitutionCost;
   const purse = num(paidUi.res_value[paidCost[0] - 1]);
   const affordable = Math.floor(purse / paidCost[1]);
   let swaps = 0;
   for (let i = 0; i <= affordable; i++) {
-    c2.send('req_universe_change_character', { character_id: 10101, character_index: i % 3 });
+    c2.send('req_universe_change_character', { character_id: 11202, character_index: i % 3 });
     const r = await c2.wait('res_universe_change_character');
     if (r.result === 0) { swaps += 1; continue; }
     check(r.result === 4, `an exhausted purse answers RES_NOT_ENOUGH(4) on map ${paidMap}`);
@@ -678,9 +818,51 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-async function currentUniverse(c) {
+// 格子下发不变量（坑 42）的客户端视角对拍器：模拟 SrpgModel.mainPosInfo 的已知集合。
+//   - 快照（res_*universe*）是直接赋值重建 → 重置已知集合，且不得含 state<=0 的格子；
+//   - ntf_main_pos_info 交付的新格此前必须未知（0→≥1 只能走这条路）；
+//   - ntf_main_pos_state_change / ntf_boss_info 只能指向已知 hex（未知 hex 会让
+//     SrpgModel:UpdateMainPos index nil 报错 / astar 拿到 nil start）。
+// 注意：res_* 是被 wait() 等走的，不会进 onAny——快照必须手动 ingest。
+function posTracker(c) {
+  const known = new Map();
+  const state = { sawInfo: false, orderOK: true, infos: 0 };
+  const ingest = (name, msg) => {
+    const uni = msg && msg.universe_info;
+    if (uni && Array.isArray(uni.main_pos_infos)) {
+      known.clear();
+      for (const m of uni.main_pos_infos) {
+        if (num(m.state) <= 0) state.orderOK = false;
+        known.set(`${m.hex.q},${m.hex.r}`, num(m.state));
+      }
+      return;
+    }
+    if (name === 'ntf_main_pos_info') {
+      for (const m of msg.main_pos_infos) {
+        if (known.has(`${m.hex.q},${m.hex.r}`)) state.orderOK = false;
+        known.set(`${m.hex.q},${m.hex.r}`, num(m.state));
+        state.sawInfo = true;
+        state.infos += 1;
+      }
+    } else if (name === 'ntf_main_pos_state_change') {
+      for (const ch of msg.main_pos_state_changes) {
+        if (!known.has(`${ch.hex.q},${ch.hex.r}`)) state.orderOK = false;
+        known.set(`${ch.hex.q},${ch.hex.r}`, num(ch.state));
+      }
+    } else if (name === 'ntf_boss_info') {
+      for (const b of msg.boss_infos) {
+        if ((known.get(`${b.hex.q},${b.hex.r}`) ?? 0) <= 1) state.orderOK = false;
+      }
+    }
+  };
+  const off = c.onAny((name, _r, msg) => ingest(name, msg));
+  return { ingest, state, off, known };
+}
+
+async function currentUniverse(c, tr) {
   c.send('req_universe');
   const r = await c.wait('res_universe');
+  if (r.result === 0 && tr) tr.ingest('res_universe', r.msg);
   return r.result === 0 ? r.msg.universe_info : null;
 }
 

@@ -1,0 +1,138 @@
+// In-process checks for the first-run wizard's launcher + game-directory detection.
+//
+// Why this exists (two separate bugs, both user-visible):
+//
+//   1. The wizard's candidate list used to dedup with `found.includes(resolved)` —
+//      an exact, case-sensitive string compare. Windows paths are case-insensitive,
+//      and Steam writes its own SteamPath with whatever casing it feels like
+//      (this machine: HKCU\...\Valve\Steam\SteamPath = "d:/steam", all lowercase
+//      and with a forward slash, while the repo lives under "D:\Steam"). So the
+//      same install showed up twice:
+//
+//          找到多个候选目录：
+//          1. D:\Steam\steamapps\common\Nornium\Nornium
+//          2. d:\steam\steamapps\common\Nornium\Nornium
+//
+//      and the user was asked to "choose" between two identical directories.
+//
+//   2. 点我启动.bat used to carry Chinese `echo` lines. cmd.exe can mis-parse a
+//      batch file containing multi-byte characters and then try to execute the
+//      leftover bytes as a command — symptom, seen on this machine:
+//
+//          '??' is not recognized as an internal or external command,
+//          operable program or batch file.
+//
+//      The launcher is now pure ASCII and all Chinese text is printed by Node
+//      (setup.js / index.js), whose console output goes through the Win32
+//      wide-char API and is codepage-independent.
+//
+// No server needed: setup.js only runs its wizard under `require.main === module`.
+const fs = require('fs');
+const path = require('path');
+const { canonicalPath, pathKey, resolveGameRoot, detectCandidates } = require('../setup');
+
+let failures = 0;
+function check(cond, msg) {
+  console.log(cond ? `  PASS ${msg}` : `  FAIL ${msg}`);
+  if (!cond) failures += 1;
+}
+
+const SERVER_DIR = path.join(__dirname, '..');
+const REPO_ROOT = path.join(SERVER_DIR, '..');
+const LAUNCHER = path.join(REPO_ROOT, '点我启动.bat');
+const isWin = process.platform === 'win32';
+
+// ---------------- path normalisation ----------------
+{
+  check(canonicalPath('d:\\steam\\steamapps') === 'D:\\steam\\steamapps',
+    'canonicalPath upper-cases the drive letter');
+  check(canonicalPath('D:/Steam/steamapps') === 'D:\\Steam\\steamapps',
+    'canonicalPath normalises forward slashes');
+  check(canonicalPath('D:\\Steam\\x\\..\\y') === 'D:\\Steam\\y',
+    'canonicalPath resolves ".." segments');
+
+  const a = 'D:\\Steam\\steamapps\\common\\Nornium\\Nornium';
+  const b = 'd:\\steam\\steamapps\\common\\Nornium\\Nornium';
+  check(pathKey(a) === pathKey(b),
+    'pathKey treats D:\\Steam\\... and d:\\steam\\... as the same directory');
+  check(pathKey('D:\\Steam\\x\\') === pathKey('D:/steam/X'),
+    'pathKey ignores trailing separators, slashes and case');
+
+  if (!isWin) console.log('  (running on a case-sensitive filesystem; drive-letter rules are Windows-only)');
+}
+
+// ---------------- resolveGameRoot consistency ----------------
+{
+  const viaRepo = resolveGameRoot(path.join(REPO_ROOT, '..'));
+  console.log(`  info: repo-relative game root -> ${viaRepo}`);
+  if (viaRepo) {
+    check(viaRepo === canonicalPath(viaRepo),
+      'resolveGameRoot returns an already-canonical path');
+    check(pathKey(resolveGameRoot(path.join(REPO_ROOT, '..', 'Nornium'))) === pathKey(viaRepo),
+      'both the steamapps\\common\\Nornium layer and its inner Nornium resolve to one key');
+  } else {
+    console.log('  (game not installed at the expected location; skipped)');
+  }
+  check(resolveGameRoot('') === null, 'an empty answer resolves to nothing');
+  check(resolveGameRoot('C:\\definitely\\not\\a\\game') === null,
+    'a path without Binaries\\Win64\\GHS-Win64-Shipping.exe is rejected');
+}
+
+// ---------------- 启动器必须保持纯 ASCII（见文件头第 2 条） ----------------
+{
+  const exists = fs.existsSync(LAUNCHER);
+  check(exists, `the launcher exists (${path.basename(LAUNCHER)})`);
+  if (exists) {
+    const bytes = fs.readFileSync(LAUNCHER);
+    const nonAscii = [];
+    bytes.forEach((b, i) => { if (b > 0x7f) nonAscii.push({ i, b: `0x${b.toString(16)}` }); });
+    check(nonAscii.length === 0,
+      `the launcher is pure ASCII (${nonAscii.length} non-ASCII bytes`
+        + `${nonAscii.length ? `, first at ${JSON.stringify(nonAscii[0])}` : ''})`);
+    check(bytes[0] !== 0xef, 'the launcher has no UTF-8 BOM (cmd chokes on it)');
+
+    const text = bytes.toString('latin1');
+    const lf = (text.match(/\n/g) || []).length;
+    const crlf = (text.match(/\r\n/g) || []).length;
+    check(lf > 0 && lf === crlf, `the launcher uses CRLF line endings (${crlf}/${lf} lines)`);
+    check(!/[\u4e00-\u9fff]/.test(bytes.toString('utf8')),
+      'no CJK text is left in the launcher');
+
+    check(/chcp 65001/.test(text), 'the launcher still switches the console to UTF-8 for Node');
+    check(/node setup\.js/.test(text), 'the launcher still runs the wizard');
+    check(/node index\.js/.test(text), 'the launcher still starts the server');
+    check(/where node/.test(text) && /Node\.js not found/.test(text),
+      'the launcher still guards against a missing Node.js (in ASCII)');
+    check(/auto-launch\.flag/.test(text) && /steam:\/\/rungameid\/2877160/.test(text),
+      'the launcher still auto-launches the game via the flag');
+    // 中文横幅/提示的归属：Node 侧必须有，"点我启动.bat" 里没有
+    const setupSrc = fs.readFileSync(path.join(SERVER_DIR, 'setup.js'), 'utf8');
+    const indexSrc = fs.readFileSync(path.join(SERVER_DIR, 'index.js'), 'utf8');
+    check(/第 1 步：初始化配置/.test(setupSrc), 'setup.js prints the step-1 banner');
+    check(/第 2 步：启动服务端/.test(setupSrc), 'setup.js prints the step-2 banner');
+    check(/FROM_BAT/.test(setupSrc), 'setup.js knows it was started from the launcher');
+    check(/服务端已停止/.test(indexSrc), 'index.js prints the "server stopped" notice');
+    check(/接下来会用 Steam 拉起游戏/.test(setupSrc),
+      'the auto-launch hint lives in setup.js');
+  }
+}
+
+// ---------------- the actual regression: candidate list must not self-duplicate ----------------
+{
+  const candidates = detectCandidates();
+  console.log('  info: detectCandidates() ->', JSON.stringify(candidates));
+  const keys = candidates.map(pathKey);
+  check(new Set(keys).size === keys.length,
+    `detectCandidates() has no case-insensitive duplicates (${keys.length} candidates)`);
+
+  const lowered = candidates.map((c) => c.toLowerCase());
+  const dupes = lowered.filter((c, i) => lowered.indexOf(c) !== i);
+  check(dupes.length === 0, `no candidate appears twice in any casing (dupes: ${JSON.stringify(dupes)})`);
+
+  for (const c of candidates) {
+    check(c === canonicalPath(c), `candidate is stored canonical: ${c}`);
+  }
+}
+
+console.log(failures === 0 ? '\nSETUP CHECKS PASSED' : `\n${failures} SETUP CHECKS FAILED`);
+process.exit(failures === 0 ? 0 : 1);

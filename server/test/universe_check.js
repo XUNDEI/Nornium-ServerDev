@@ -262,8 +262,9 @@ const itemCount = (doc, itemId) => doc.bag.items
     check(U.spawnDueBossWaves(u) === null, `${label} no wave before its appearTime step`);
 
     u.step = Number(time);
-    const revealed = U.spawnDueBossWaves(u);
-    check(Array.isArray(revealed), `${label} wave spawns on step ${time}`);
+    const rev = U.spawnDueBossWaves(u);
+    check(!!rev && Array.isArray(rev.fresh) && Array.isArray(rev.changed),
+      `${label} wave spawns on step ${time}`);
     check(u.boss_infos.length === 1 && u.boss_wave === 0, `${label} wave 0 is the only live boss`);
     check(bossCells(u).every((c) => c && c.state > 1),
       `${label} boss stands on a reachable cell (state > 1)`);
@@ -703,8 +704,8 @@ const itemCount = (doc, itemId) => doc.bag.items
   const cfg = gd.query('d_srpg_level_boss', 17);          // story: distance [2], appearTime [12]
   const u = U.newUniverse(mapParams(), STORY_MAP);
   u.step = Number(cfg.appearTime[0]);
-  const revealed = U.spawnDueBossWaves(u);
-  check(Array.isArray(revealed) && u.boss_infos.length === 1, 'the wave spawns on its appearTime step');
+  const rev = U.spawnDueBossWaves(u);
+  check(!!rev && u.boss_infos.length === 1, 'the wave spawns on its appearTime step');
 
   const startHex = { q: u.boss_infos[0].hex.q, r: u.boss_infos[0].hex.r };
   check(U.dist(startHex, u.base_hex) === Number(cfg.distance[0]),
@@ -715,8 +716,8 @@ const itemCount = (doc, itemId) => doc.bag.items
     `a ${route.length}-cell route leads from the spawn cell to the base`);
   check(route.every((c) => c.state > 1),
     'the whole boss→base corridor is reachable (客户端 astar 的 start/goal 都不会是 nil)');
-  check(revealed.every((c) => c.state === 2),
-    'every cell revealed for the wave is pushed as a state change first');
+  check([...rev.fresh, ...rev.changed].every((c) => c.state === 2),
+    'every cell revealed for the wave ends reachable (fresh=新格先 info，changed=后 state_change)');
 
   // 每回合推进一格
   let steps = 0;
@@ -994,6 +995,249 @@ const itemCount = (doc, itemId) => doc.bag.items
   gmSent.length = 0;
   gm('req_gm_cmd')(gmSession, { cmd: 'add_card 999999 1' });
   check(gmDoc.universe.cards.length === 3, 'an unknown card id is ignored');
+}
+
+// ---------------- 格子下发不变量（坑 42） ----------------
+// 客户端已知格子集合 == 服务端 state > 0 的格子集合：
+//   - 初始快照只含 state > 0 的格子（BP_Map_Planet_C 对 state 0 整只隐藏，而
+//     ntf_main_pos_state_change 永远不会让它重新出现）；
+//   - 0 -> >=1 的新格必须先由 ntf_main_pos_info 交付（客户端只在这条消息里
+//     AddMainPos 重建 actor + Dissolve + 重抓战争迷雾）；
+//   - ntf_main_pos_state_change / ntf_boss_info 只能涉及客户端已知的 hex
+//     （SrpgModel:UpdateMainPos 对未知 hex 直接 index nil 报错）。
+{
+  const handle = require('../src/handlers/universe').handle;
+
+  // ① 快照过滤
+  const snapRun = U.newUniverse(mapParams({ map_type: 1 }));
+  const snapshot = U.buildUniverseInfo(snapRun).main_pos_infos;
+  check(snapshot.every((m) => Number(m.state) > 0),
+    'snapshot cells all carry state > 0');
+  check(Object.values(snapRun.main_pos).some((c) => c.state === 0),
+    'the generic map does keep state=0 hidden cells (the filter is not vacuous)');
+  check(snapshot.length < Object.values(snapRun.main_pos).length,
+    'the snapshot is strictly smaller than the full map');
+
+  // ② revealFrontier 的 fresh/changed 分流
+  const fr = U.newUniverse(mapParams({ map_type: 1 }));
+  const explorable0 = Object.values(fr.main_pos).find((c) => c.state === 2);
+  const before = new Map(Object.values(fr.main_pos).map((c) => [U.hexKey(c.hex), c.state]));
+  const out = U.revealFrontier(fr.main_pos, explorable0.hex);
+  check(out.fresh.length > 0 && out.fresh.every((c) => (before.get(U.hexKey(c.hex)) ?? 0) === 0),
+    'revealFrontier.fresh only contains previously invisible cells');
+  check(out.changed.every((c) => (before.get(U.hexKey(c.hex)) ?? 0) >= 1),
+    'revealFrontier.changed only contains previously visible cells');
+  check(out.fresh.every((c) => c.state > 0) && out.changed.every((c) => c.state > 0),
+    'both buckets end visible');
+
+  // ③ 线序回放：快照建立已知集合，然后一路 req_explore，逐帧核对客户端视角
+  const replay = (label, entry, req) => {
+    const doc = createPlayerDoc(9700 + Math.floor(Math.random() * 200));
+    const sent = [];
+    const session = { player: doc, send: (n, m, r) => sent.push({ name: n, msg: m, result: r }) };
+    const call = (name, r2) => { sent.length = 0; handle(name)(session, r2 || {}); return sent; };
+    call(entry, req);
+    const known = new Map(); // hexKey -> state，模拟客户端 SrpgModel.mainPosInfo
+    let sawInfo = false;
+    let orderOK = true;
+    const ingest = (frames) => {
+      for (const s of frames) {
+        // 初始快照（res_*universe*）也是客户端「学格子」的一条路径：直接赋值重建
+        const uni = s.msg && s.msg.universe_info;
+        if (uni && Array.isArray(uni.main_pos_infos)) {
+          for (const m of uni.main_pos_infos) known.set(`${m.hex.q},${m.hex.r}`, Number(m.state));
+        }
+        if (s.name === 'ntf_main_pos_info') {
+          for (const m of s.msg.main_pos_infos) {
+            const k = `${m.hex.q},${m.hex.r}`;
+            // 已知格不该重发 info；info 交付的新格一定此前未知
+            if (known.has(k)) orderOK = false;
+            known.set(k, Number(m.state));
+            sawInfo = true;
+          }
+        } else if (s.name === 'ntf_main_pos_state_change') {
+          for (const ch of s.msg.main_pos_state_changes) {
+            const k = `${ch.hex.q},${ch.hex.r}`;
+            // 未知 hex 的 state_change 会在 SrpgModel:UpdateMainPos 里 index nil
+            if (!known.has(k)) orderOK = false;
+            known.set(k, Number(ch.state));
+          }
+        } else if (s.name === 'ntf_boss_info') {
+          for (const b of s.msg.boss_infos) {
+            if ((known.get(`${b.hex.q},${b.hex.r}`) ?? 0) <= 1) orderOK = false;
+          }
+        }
+      }
+    };
+    ingest(sent);
+    for (let guard = 0; guard < 60 && doc.universe && doc.universe.active; guard++) {
+      const cell = [...known.entries()].find(([, st]) => st === 2);
+      if (!cell) break;
+      const [q, r] = cell[0].split(',').map(Number);
+      const frames = call('req_explore', { hex: { q, r } });
+      if (frames.some((s) => s.name === 'res_explore' && s.result === undefined)) {
+        known.set(cell[0], 3); // 客户端 ExploreTo 自己把踩到的格子本地置 3
+      }
+      ingest(frames);
+      // 事件/三选一照单全收（点第一个），让探索继续走下去
+      // （探索可能把生存值扣到 0 而结算整局，doc.universe 会变 null，到此为止）
+      if (!(doc.universe && doc.universe.active)) break;
+      const ev = doc.universe.events[0];
+      if (ev) ingest(call('req_choose_event_option', { event_uuid: ev.event_uuid, index: 0 }));
+      const sel = doc.universe.cards_for_select;
+      if (sel) call('req_choose_card', { select_uuid: sel.select_uuid, index: 0 });
+    }
+    check(orderOK,
+      `${label}: every state_change/boss hex was already known, and 0->>=1 cells always arrived via ntf_main_pos_info first`);
+    check(sawInfo, `${label}: exploring revealed at least one brand-new cell via ntf_main_pos_info`);
+    check([...known.values()].every((st) => st > 0),
+      `${label}: the client never learns a state<=0 cell`);
+  };
+  replay('story map', 'req_new_universe_specific', { specific_id: STORY_SPECIFIC });
+  replay('generic map', 'req_new_universe', mapParams({ map_type: 1 }));
+}
+
+// ---------------- universe growth (远航支援商店) ----------------
+// The shop used to be a stub that always answered MAX_RANK(1) — every purchase
+// showed 「cmd:302 code:1」. The official economy (PlayerSystem.lua:58-129):
+// exp = bag count of item 9003 → level via d_srpg_exp; spent = Σ cost×rank kept
+// in player_universe_growth_node_infos; free = level − spent. 9003 is never
+// deducted — spending is bookkeeping only.
+{
+  const handleU = require('../src/handlers/universe').handle;
+  const handleS = require('../src/handlers/social').handle;
+  const G = require('../src/game/growth');
+  const doc = createPlayerDoc(9600);
+  const sent = [];
+  const session = { player: doc, send: (n, m, r) => sent.push({ name: n, msg: m, result: r }) };
+  const callU = (name, req) => { sent.length = 0; handleU(name)(session, req || {}); return sent; };
+  const callS = (name, req) => { sent.length = 0; handleS(name)(session, req || {}); return sent; };
+
+  // 999 × 9003: cumulative d_srpg_exp 100/150/200/250 → level 5 (L6 needs 1000)
+  check(G.growthLevel(doc) === 5, '999补给配额 → 远航等级 5（与客户端公式一致）');
+  check(G.freePoints(doc) === 5, '未加点时剩余点数 = 5');
+
+  // node 2 (金刚凝胶): max level 3, cost 1
+  check(callU('req_player_universe_growth', { node_id: 2 })[0].result === undefined,
+    'first purchase answers OK (not cmd:302 code:1)');
+  check(doc.player.player_universe_growth_node_infos.find((n) => n.node_id === 2).node_rank === 1,
+    'the rank is persisted to the save');
+  callU('req_player_universe_growth', { node_id: 2 });
+  callU('req_player_universe_growth', { node_id: 2 });
+  check(callU('req_player_universe_growth', { node_id: 2 })[0].result === 1,
+    'a 4th buy of the max-level-3 node answers MAX_RANK(1)');
+  check(G.freePoints(doc) === 2, '3 buys spent 3 of 5 points');
+
+  check(callU('req_player_universe_growth', { node_id: 999999 })[0].result === 1,
+    'an unknown node id answers MAX_RANK(1) instead of crashing');
+
+  // drain the wallet: node 6 ×2 (level 3, cost 1) → spent 5, then out of points
+  callU('req_player_universe_growth', { node_id: 6 });
+  callU('req_player_universe_growth', { node_id: 6 });
+  check(callU('req_player_universe_growth', { node_id: 6 })[0].result === 2,
+    'buying with 0 free points answers RES_NOT_ENOUGH(2)');
+
+  // reset refunds everything (spent is bookkeeping — nothing to give back)
+  check(callS('req_player_universe_growth_reset')[0].result === undefined,
+    'req_player_universe_growth_reset answers OK');
+  check(doc.player.player_universe_growth_node_infos.length === 0 && G.freePoints(doc) === 5,
+    'reset clears the nodes and refunds all points');
+
+  // bought bonuses must take effect at run start (type-1 nodes only)
+  doc.player.player_universe_growth_node_infos = [
+    { node_id: 2, node_rank: 3 }, // 金刚凝胶 +150 ([0,50,0,0]/[0,100,0,0]/[0,150,0,0])
+    { node_id: 4, node_rank: 2 }, // 生存值 +2
+    { node_id: 1, node_rank: 1 }, // 建筑蓝图 +1 (card pool 100)
+  ];
+  const u = U.newUniverse(mapParams());
+  U.applyGrowthBonuses(u, doc);
+  const resBase = gd.query('d_srpg_map_base', u.map_id).initialResourceValue || [100, 100, 100, 100];
+  check(u.res_value[2] === (resBase[1] ?? 0) + 150, '金刚凝胶节点 +150 进开局资源');
+  check(u.cur_hp === (gd.query('d_srpg_map_base', u.map_id).startHP ?? 5) + 2, '生存值节点 +2 进开局HP');
+  check(u.cards.length === 1 && U.cardsForEffectConfig(100).includes(u.cards[0]),
+    '建筑蓝图节点从卡池100随机发1张进手牌');
+  // type-2 nodes (effectType 0) have no client consumer — must be a no-op, not a crash
+  doc.player.player_universe_growth_node_infos.push({ node_id: 5, node_rank: 10 });
+  const u2 = U.newUniverse(mapParams());
+  U.applyGrowthBonuses(u2, doc);
+  check(u2.cards.length === 1 && u2.cur_hp === u.cur_hp, 'type-2 战斗属性节点不接入、不崩');
+}
+
+// ---------------- endpoint cell (终点) ends a story run ----------------
+// 「终点」格 = d_srpg_main_pos_base 99999（nameId 113199999 = 文本「终点」），它的
+// onExploreEffectTriggerID 首项是触发器 99（effectType 99, effectDisplay [10] =
+// SrpgController.SpecialDisplay.SetAbort）。applyEffect 曾把这个类型落进 default
+// 分支只打日志 —— 局永不结算，主线 60005「完成某个剧情星图」（100031008 前往
+// 水星天）推不动；且未结算的旧局被客户端复用（RequestSpecialSrpgLevel，
+// BP_GameInstance_C.lua:2215），表现为「血量继承上一局」。
+//
+// 消息顺序是硬约束：客户端在 NTF_UNIVERSE_CLEAR 处理器里读「当前打开的 trigger」
+// 的 effectDisplay（SrpgController.lua:299-326），所以 ntf_effect_trigger_begin(99)
+// 必须先于 ntf_universe_clear，end 在其后。EndReason=Abort + mapType==0 时客户端
+// QuestSystem 记 60005（QuestSystem.lua:1299-1315）→ req_complete_plot_mission 推进主线。
+{
+  const END_SPECIFIC = 1000302; // d_srpg_map_specific[1000302].map = 1000302（濒危水星天 I）
+  const spec = gd.query('d_srpg_map_specific', END_SPECIFIC);
+  const endMap = gd.query('d_srpg_map_base', END_SPECIFIC);
+  check(!!spec && spec.map === END_SPECIFIC, `${END_SPECIFIC} is a specific row bound to its own map`);
+  check(!!endMap && Number(endMap.mapType) === 0, `${END_SPECIFIC} is a story map (mapType 0)`);
+  const trig = gd.query('d_srpg_effect_trigger', 99);
+  check(!!trig && Number(trig.effectType) === 99 && JSON.stringify(trig.effectDisplay) === '[10]',
+    'trigger 99 is the endpoint finale (effectDisplay [10] = SetAbort)');
+
+  const handle = require('../src/handlers/universe').handle;
+  const doc = createPlayerDoc(9610);
+  const sent = [];
+  const session = { player: doc, send: (n, m, r) => sent.push({ name: n, msg: m, result: r }) };
+  const call = (name, req) => { sent.length = 0; handle(name)(session, req || {}); return sent; };
+
+  call('req_new_universe_specific', { specific_id: END_SPECIFIC });
+  const run = doc.universe;
+  const endCell = Object.values(run.main_pos).find((c) => Number(c.main_pos_id) === 99999);
+  check(!!endCell, 'the run contains an endpoint cell (99999)');
+  check(Number(endCell.state) === 0, 'the endpoint starts hidden (baseState 0)');
+
+  // 客户端走到终点前，格子必然已被揭示成「可探索」——直接摆到可探索态踩上去。
+  endCell.state = 2;
+  call('req_explore', { hex: endCell.hex });
+
+  const names = sent.map((s) => s.name);
+  const idxBegin = names.indexOf('ntf_effect_trigger_begin');
+  const idxClear = names.indexOf('ntf_universe_clear');
+  const idxEnd = names.indexOf('ntf_effect_trigger_end');
+  check(names.includes('res_explore'), 'req_explore answers OK');
+  check(idxBegin !== -1 && idxClear !== -1 && idxEnd !== -1,
+    'stepping on the endpoint opens the finale trigger and clears the run');
+  check(idxBegin < idxClear && idxClear < idxEnd,
+    'trigger begin(99) precedes ntf_universe_clear, end comes after (client reads the open trigger)');
+  const beginMsg = sent[idxBegin].msg;
+  check(Number(beginMsg.trigger_id) === 99, 'the opened trigger is 99');
+  check(sent[idxClear].msg.result === true, 'universe_clear carries result=true');
+  check(!doc.universe, 'the run is settled (universe null) — 60005 can complete client-side');
+  check(names.includes('ntf_item_info'), 'settleRun grants the run rewards');
+
+  // 僵尸剧情局迁移：case 99 落地前踩过终点的局不会结算，客户端又不重开 →
+  // migratePlayer 必须把「剧情图 + 终点已探索(state 3) + 仍 active」的局清掉。
+  const zombie = createPlayerDoc(9611);
+  handle('req_new_universe_specific')({ player: zombie, send: () => {} }, { specific_id: END_SPECIFIC });
+  Object.values(zombie.universe.main_pos)
+    .filter((c) => Number(c.main_pos_id) === 99999)
+    .forEach((c) => { c.state = 3; });
+  check(migratePlayer(zombie) && !zombie.universe,
+    'a story run whose endpoint was already explored is cleared on load (坑 43)');
+
+  // 正常进行中的剧情局不能被误伤；普通图局也不受影响。
+  const healthy = createPlayerDoc(9612);
+  handle('req_new_universe_specific')({ player: healthy, send: () => {} }, { specific_id: END_SPECIFIC });
+  const healthyRun = healthy.universe;
+  migratePlayer(healthy);
+  check(healthy.universe === healthyRun, 'an in-progress story run with endpoint unexplored survives');
+
+  const generic = createPlayerDoc(9613);
+  handle('req_new_universe')({ player: generic, send: () => {} }, mapParams({ map_type: 1 }));
+  const genericRun = generic.universe;
+  migratePlayer(generic);
+  check(generic.universe === genericRun, 'a generic-map run is never touched by the repair');
 }
 
 fs.rmSync(tmpDataDir, { recursive: true, force: true });

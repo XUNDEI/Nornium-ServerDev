@@ -3,6 +3,7 @@
 // Approximation notes: the client tolerates generated maps as long as ids are
 // resolvable in d_srpg_* tables and states follow 0/1/2/3 semantics.
 const gd = require('../gamedata');
+const log = require('../logger');
 
 const HEX_NEIGHBORS = [
   { q: 1, r: 0 }, { q: 1, r: -1 }, { q: 0, r: -1 },
@@ -226,10 +227,61 @@ function dist(a, b) {
   return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) / 2;
 }
 
+// 远航支援商店已购增益在开局生效（只接入 type 1 节点；type 2 的战斗属性节点
+// effectType=0 在客户端没有任何消费点，客户端本地也不结算，不接入——见
+// REVERSE_ENGINEERING.md 8.10）。效果数值按等级取 d_srpg_growth.effectDisplay{rank}：
+//   节点2 effectType 1：[0,50,0,0] 这类 4 资源增量 → 加进 res_value
+//   节点4 effectType 2：[1]/[2]/[3] → 加到开局生存值
+//   节点1 effectType 11：[100] = d_srpg_card_pool 行号 → 每级随机 1 张蓝图进开局手牌
+// 必须在 makeMission/buildUniverseInfo 之前调用（改的就是同一份 u）。
+function applyGrowthBonuses(u, player) {
+  const infos = player?.player?.player_universe_growth_node_infos;
+  if (!Array.isArray(infos)) return;
+  for (const info of infos) {
+    const cfg = gd.query('d_srpg_growth', info.node_id);
+    const rank = Number(info.node_rank) || 0;
+    if (!cfg || Number(cfg.type) !== 1 || rank <= 0) continue;
+    const conf = intArray(cfg[`effectDisplay${rank}`] || []);
+    switch (Number(cfg.effectType)) {
+      case 1:
+        for (let i = 0; i < 4; i++) if (conf[i]) changeResource(u, i + 1, conf[i]);
+        break;
+      case 2:
+        u.cur_hp += conf[0] || 0;
+        break;
+      case 11: {
+        const pool = cardsForEffectConfig(conf[0]);
+        if (pool.length) u.cards.push(pool[Math.floor(Math.random() * pool.length)]);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+}
+
+// 抬高一个格子的 state，并告诉调用方这次变化属于哪一类：
+//   'new'    —— 抬升前不可见（state 0）：客户端从没被下发过这个 hex，必须走
+//               ntf_main_pos_info 让客户端「造格子」（AddMainPos 重建 actor + Dissolve
+//               + 重抓战争迷雾）。BP_Map_Planet_C 对 state 0 整只 actor 隐藏，而
+//               ntf_main_pos_state_change 的处理是 SrpgModel:GetMainPos(hex).state = x，
+//               未知 hex 直接「attempt to index a nil value」——见坑 42。
+//   'change' —— 抬升前已可见（state >= 1）：发 ntf_main_pos_state_change 即可。
+//   null     —— 没到目标值，什么都没做。
+function raiseState(cell, target) {
+  if (!cell || typeof cell.state !== 'number' || !(cell.state < target)) return null;
+  const fresh = cell.state <= 0;
+  cell.state = target;
+  return fresh ? 'new' : 'change';
+}
+
 // BFS from an explored cell: neighbors become explorable (state >= 2); cells
 // whose baseState is 3 (transit cells) are auto-explored and keep cascading.
-// Returns the list of cells whose state changed (for ntf batching).
+// Returns { fresh, changed } split by raiseState: fresh cells have never been
+// sent to the client and must travel as ntf_main_pos_info, changed cells are
+// already known and batch into ntf_main_pos_state_change (see 坑 42).
 function revealFrontier(mainPos, fromHex) {
+  const fresh = [];
   const changed = [];
   const queue = [fromHex];
   const seen = new Set([hexKey(fromHex)]);
@@ -242,15 +294,13 @@ function revealFrontier(mainPos, fromHex) {
       const cell = mainPos[key];
       if (!cell) continue;
       const base = gd.query('d_srpg_main_pos_base', cell.main_pos_id);
-      const target = Math.max(2, base?.baseState ?? 0);
-      if (cell.state < target) {
-        cell.state = target;
-        changed.push(cell);
-      }
+      const kind = raiseState(cell, Math.max(2, base?.baseState ?? 0));
+      if (kind === 'new') fresh.push(cell);
+      else if (kind === 'change') changed.push(cell);
       if (cell.state >= 3) queue.push(cell.hex); // auto-explored transit cell
     }
   }
-  return changed;
+  return { fresh, changed };
 }
 
 // Character max HP: d_character.attr pairs (id 1001 = HitPoint) plus lvAdd per
@@ -318,6 +368,18 @@ function encMainPos(p) {
 }
 
 function buildUniverseInfo(u) {
+  // 防呆（坑 26/42）：boss 落点格必须以「可达」（state > 1）姿态出现在快照里，否则
+  // 客户端 SrpgModel:Init → UpdateBossLines → astar.path 拿到 nil start 抛
+  // 「table index is nil」，res_*universe* 处理器从中间被打断 → 加载界面永不关闭。
+  // 正常路径在加载期已由 ensureBossReachable / reconcileBossWaves 抬到 2；这里仍
+  // 看到 state <= 1 的落点就就地抬升并告警（抬升后自然落入下面的过滤结果）。
+  for (const b of u.boss_infos || []) {
+    const cell = u.main_pos[hexKey(b.hex || {})];
+    if (cell && typeof cell.state === 'number' && cell.state <= 1) {
+      log.warn(`[universe] boss ${b.boss_index} sits on an unreachable cell (state ${cell.state}); forced to 2 for the snapshot`);
+      cell.state = 2;
+    }
+  }
   return {
     res_value: u.res_value.slice(1),
     turn: u.turn,
@@ -327,7 +389,11 @@ function buildUniverseInfo(u) {
     specific_id: u.specific_id,
     main_planet_id: u.main_planet_id,
     map_id: u.map_id,
-    main_pos_infos: Object.values(u.main_pos).map(encMainPos),
+    // 客户端只有两条「学格子」的路径：初始快照与 ntf_main_pos_info。快照必须只含
+    // state > 0 的格子——state 0 的格子客户端只会整只隐藏（BP_Map_Planet_C:IsVisible），
+    // 之后再发 ntf_main_pos_state_change 也永远不会让它出现，反而会因未知 hex 报错
+    // （坑 42：客户端已知集合 == 服务端 state > 0 的格子集合）。
+    main_pos_infos: Object.values(u.main_pos).filter((p) => p.state > 0).map(encMainPos),
     base_hex: encHex(u.base_hex),
     last_explored_hex: encHex(u.base_hex),
     boss_id: u.boss_id,
@@ -434,15 +500,9 @@ function ensureBossReachable(u) {
   let changed = false;
   for (const boss of u.boss_infos) {
     const cell = u.main_pos[hexKey(boss.hex || {})];
-    if (cell && typeof cell.state === 'number' && cell.state <= 1) {
-      cell.state = 2;
-      changed = true;
-    }
+    if (raiseState(cell, 2) !== null) changed = true;
     for (const p of routeToBase(u, boss.hex)) {
-      if (p.state <= 1) {
-        p.state = 2;
-        changed = true;
-      }
+      if (raiseState(p, 2) !== null) changed = true;
     }
   }
   return changed;
@@ -512,13 +572,18 @@ function stepBossTowardsBase(u, boss, field, taken) {
 }
 
 // 每回合推进一次所有存活首领。返回：
-//   changed  —— 是否有首领挪了位（决定要不要推 ntf_boss_info）
-//   revealed —— 为让首领落点可达而新揭示的格子（必须先于 ntf_boss_info 下发）
-//   arrived  —— 本回合刚抵达基地的首领
-//   damage   —— 本回合被扣掉的生存值（已在撞上基地的那一回合之后才计）
-//   dead     —— 生存值归零（远航失败）
+//   changed         —— 是否有首领挪了位（决定要不要推 ntf_boss_info）
+//   revealedFresh   —— 首领挪进 previously-unseen 格（0 -> 2，走 ntf_main_pos_info）
+//   revealedChanged —— 首领挪进 previously-visible 格（1 -> 2，走 ntf_main_pos_state_change）
+//   revealed        —— 上面两者的并集（兼容旧调用方/断言）
+//   arrived         —— 本回合刚抵达基地的首领
+//   damage          —— 本回合被扣掉的生存值（已在撞上基地的那一回合之后才计）
+//   dead            —— 生存值归零（远航失败）
 function advanceBosses(u) {
-  const out = { changed: false, revealed: [], arrived: [], damage: 0, dead: false };
+  const out = {
+    changed: false, revealedFresh: [], revealedChanged: [], revealed: [],
+    arrived: [], damage: 0, dead: false,
+  };
   if (!u || !u.main_pos || !Array.isArray(u.boss_infos) || !u.boss_infos.length) return out;
   const baseKey = hexKey(u.base_hex);
   const field = distanceField(u, u.base_hex);
@@ -540,10 +605,10 @@ function advanceBosses(u) {
     boss.hex = encHex(step.hex);
     taken.add(hexKey(step.hex));
     out.changed = true;
-    if (step.cell && step.cell.state <= 1) {
-      step.cell.state = 2;
-      out.revealed.push(step.cell);
-    }
+    const kind = step.cell ? raiseState(step.cell, 2) : null;
+    if (kind === 'new') out.revealedFresh.push(step.cell);
+    else if (kind === 'change') out.revealedChanged.push(step.cell);
+    if (kind) out.revealed.push(step.cell);
     if (step.atBase) {
       boss.at_base = true;
       out.arrived.push(step.cell || posAt(u, step.hex));
@@ -557,16 +622,18 @@ function advanceBosses(u) {
   return out;
 }
 
-// 旧存档的 boss 落点/走廊补齐成 state ≥ 2（add-only，幂等）
+// 旧存档的 boss 落点/走廊补齐成 state ≥ 2（add-only，幂等）。返回 { fresh, changed }
+// 与 revealFrontier 同口径；加载期调用方（game/migrate.js）只改 state 不发消息，
+// 新格子随后由进图时的过滤快照带给客户端（那时它们已经是 state 2 > 0）。
 function revealBossRoute(u, fromHex) {
-  const revealed = [];
+  const fresh = [];
+  const changed = [];
   for (const p of routeToBase(u, fromHex)) {
-    if (p.state <= 1) {
-      p.state = 2;
-      revealed.push(p);
-    }
+    const kind = raiseState(p, 2);
+    if (kind === 'new') fresh.push(p);
+    else if (kind === 'change') changed.push(p);
   }
-  return revealed;
+  return { fresh, changed };
 }
 
 // Official wave timing: d_srpg_level_boss.appearTime[i] is the exploration step
@@ -582,9 +649,10 @@ function revealBossRoute(u, fromHex) {
 // base" and killed is replaced by the next wave immediately, the banner comes
 // straight back, and it never disappears for good — exactly the reported symptom.
 //
-// Returns the cells whose state was raised (an empty array is a valid "waves
-// spawned but every cell was already reachable") or null when nothing is due —
-// the caller uses null to skip pushing ntf_boss_info entirely.
+// Returns { fresh, changed } (raiseState 分流，见 revealFrontier) when waves
+// spawned — fresh cells were never sent to the client and travel as
+// ntf_main_pos_info — or null when nothing is due; the caller uses null to skip
+// pushing ntf_boss_info entirely.
 //
 // The whole 「spawn cell → base」 corridor is revealed as well: the boss walks it
 // one cell per turn (advanceBosses) and the client draws it as the boss line via
@@ -595,7 +663,8 @@ function spawnDueBossWaves(u) {
   const path = Array.isArray(cfg?.path) ? cfg.path : [];
   const times = Array.isArray(cfg?.appearTime) ? cfg.appearTime : [];
   const distances = Array.isArray(cfg?.distance) ? cfg.distance : [];
-  const revealed = [];
+  const fresh = [];
+  const changed = [];
   let spawned = false;
   if (!Array.isArray(u.boss_infos)) u.boss_infos = [];
   if (!Number.isFinite(u.boss_wave)) u.boss_wave = -1;
@@ -611,18 +680,17 @@ function spawnDueBossWaves(u) {
     const taken = new Set(u.boss_infos.map((b) => hexKey(b.hex || {})));
     const cell = pickBossCell(u, ring, taken);
     if (!cell) continue;
-    if (cell.state <= 1) {
-      cell.state = 2;
-      revealed.push(cell);
-    }
-    for (const p of revealBossRoute(u, cell.hex)) {
-      if (!revealed.includes(p)) revealed.push(p);
-    }
+    const kind = raiseState(cell, 2);
+    if (kind === 'new') fresh.push(cell);
+    else if (kind === 'change') changed.push(cell);
+    const route = revealBossRoute(u, cell.hex);
+    fresh.push(...route.fresh);
+    changed.push(...route.changed);
     u.boss_wave = i;
     u.boss_infos.push({ boss_index: i, fight_uuid: '0', hex: encHex(cell.hex), at_base: false });
     spawned = true;
   }
-  return spawned ? revealed : null;
+  return spawned ? { fresh, changed } : null;
 }
 
 // Rebuild the boss list of a run that was stored while the server still spawned
@@ -651,7 +719,7 @@ function reconcileBossWaves(u) {
     const taken = new Set(next.map((b) => hexKey(b.hex || {})));
     const cell = pickBossCell(u, Number((cfg.distance || [])[i] ?? 1), taken);
     if (!cell) continue;
-    if (cell.state <= 1) cell.state = 2;
+    raiseState(cell, 2);
     revealBossRoute(u, cell.hex);
     next.push({ boss_index: i, fight_uuid: '0', hex: encHex(cell.hex), at_base: false });
     changed = true;
@@ -789,6 +857,19 @@ function repairUnupgradableBuilding(player) {
   for (let i = 0; i < need.missing; i++) u.cards.push(need.card_id);
   u.repaired_cards.push(need.card_id);
   return new Array(need.missing).fill(need.card_id);
+}
+
+// 僵尸剧情局：applyEffect 的 case 99（坑 43）落地之前踩过「终点」格（main_pos_id
+// 99999）的剧情图（mapType 0）局不会被结算，客户端 RequestSpecialSrpgLevel 见到
+// 已有剧情局就直接复用（BP_GameInstance_C.lua:2215），于是玩家永远背着上一局的
+// cur_hp、终点格停在已探索态无法再触发。判定 = 剧情局 + 终点格已探索（state 3）；
+// 正常进行中的剧情局不会命中。修复 = 让这局就地结束（下一局由 startHP 重新开）。
+function stuckStoryRun(player) {
+  const u = player && player.universe;
+  if (!u || !u.active || !isStoryMap(u.map_id)) return false;
+  return Object.values(u.main_pos || {}).some(
+    (p) => Number(p.main_pos_id) === 99999 && Number(p.state) === 3,
+  );
 }
 
 // ---------------- 建筑蓝图（卡牌）三选一 ----------------
@@ -998,13 +1079,15 @@ function makeMission(u) {
 }
 
 module.exports = {
-  HEX_NEIGHBORS, hexKey, encHex, newUniverse, buildUniverseInfo, revealFrontier,
+  HEX_NEIGHBORS, hexKey, encHex, encMainPos, newUniverse, applyGrowthBonuses, buildUniverseInfo,
+  revealFrontier, raiseState,
   changeResource, resourceDeltas, spendResource, substitutionCostOf, ensureBossReachable,
   attachForPos, refreshAttach, spawnDueBossWaves, reconcileBossWaves, pickBossCell,
   posAt, neighborsOf,
   newFight, makeCardSelect, addCardSelect, cardSelects, findCardSelect, dropCardSelect,
   refreshCardSelect, intArray, cardListOf, cardsOfPool, poolIdForCards, cardsForEffectConfig,
   HAND_LEN_MAX, exploreLockedByStory, unupgradableBuilding, repairUnupgradableBuilding,
+  stuckStoryRun,
   makeCurioSelect, refreshCurioSelect, curioPoolList, makeEvent, makeMission,
   randomEncounterLevel, adjacent, dist, characterMaxHp,
   distanceField, routeToBase, revealBossRoute, advanceBosses, stepBossTowardsBase,

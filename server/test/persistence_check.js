@@ -2,12 +2,22 @@
 // process, relogin and verify the data survived. Run with the server DOWN
 // (this script manages the server process itself).
 const { execSync, spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const net = require('net');
 const protobuf = require('protobufjs');
 const DES = require('des.js').DES;
 
 const SERVER_DIR = path.join(__dirname, '..');
+
+// 这个测试会拉起两个真实的服务端进程，**必须**把它们指向临时存档目录：
+// 原先两次 spawn 都没传 GHS_DATA_DIR，于是测试账号直接落进了真实的 server\data\
+// （跑完测试再开服，玩家自己的档里就会多一个 persistXXXXX 账号；发布前的"清档"
+// 也多半就是被它污染的）。测试永远不许碰真实存档。
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ghs-persist-'));
+const SERVER_ENV = { ...process.env, GHS_DATA_DIR: DATA_DIR };
+
 let failures = 0;
 const check = (c, m) => { console.log(c ? '  PASS ' + m : '  FAIL ' + m); if (!c) failures++; };
 
@@ -108,7 +118,7 @@ async function main() {
   const acct = `persist${Date.now() % 100000}`;
   stopServer();
   await new Promise((r) => setTimeout(r, 500));
-  const srv1 = spawn('node', ['index.js'], { cwd: SERVER_DIR, stdio: 'ignore' });
+  const srv1 = spawn('node', ['index.js'], { cwd: SERVER_DIR, env: SERVER_ENV, stdio: 'ignore' });
   await new Promise((r) => setTimeout(r, 1500));
 
   const c0 = new C();
@@ -135,7 +145,7 @@ async function main() {
   srv1.kill();
   await new Promise((r) => setTimeout(r, 800));
 
-  const srv2 = spawn('node', ['index.js'], { cwd: SERVER_DIR, stdio: 'ignore' });
+  const srv2 = spawn('node', ['index.js'], { cwd: SERVER_DIR, env: SERVER_ENV, stdio: 'ignore' });
   await new Promise((r) => setTimeout(r, 1500));
   const c2 = await session(acct, 'pw');
   check(true, 'relogin after server restart');
@@ -151,12 +161,18 @@ async function main() {
   check(gold === STARTER_GOLD - 10000, `gold persisted after purchase+restart (${gold})`);
   c2.send('req_character_list');
   const chars = (await c2.wait('res_character_list')).msg.character_list_info.character_infos;
-  check(chars.length === 10, `characters persisted (${chars.length})`);
+  check(chars.length === 2, `starter characters persisted (${chars.length})`);
 
   stopServer();
   srv2.kill();
+  fs.rmSync(DATA_DIR, { recursive: true, force: true });
   console.log(failures === 0 ? 'PERSISTENCE PASSED' : `${failures} FAILED`);
   process.exit(failures ? 1 : 0);
 }
 
-main().catch((e) => { console.error('FATAL', e); stopServer(); process.exit(1); });
+main().catch((e) => {
+  console.error('FATAL', e);
+  stopServer();
+  fs.rmSync(DATA_DIR, { recursive: true, force: true });
+  process.exit(1);
+});

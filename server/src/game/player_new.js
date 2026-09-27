@@ -19,6 +19,31 @@ function initialCharacterIds() {
     .map(([, r]) => r.id);
 }
 
+// 新号开局角色。贴原版口味：不再把整个名单一股脑塞给新号（编辑器「一键加全角色」、
+// 控制台 addchar、游戏内 GM add_character 与抽卡仍然随时能补）。
+//
+// 开局阵容是**数据驱动**的：`d_srpg_map_specific.character` 是每张剧情星图声明的
+// 出场角色表，全部 13 行的并集就是 {10501 信风, 11202 鱼啄雨} ——
+//   - 教学图 1000309 只要 [10501]；1000301 是 [10501, 11202]；1001001 只有 [11202]；
+//   - 新手池（d_gacha_schedule gachaId 2 → block1pool 601）里**没有信风**，
+//     常驻池（gachaId 1 → block1pool 698）才有她（item 99）—— 即「主角开局就有、不能抽」。
+// 其余角色全部来自抽卡（d_gacha_item 的 18 个幻形覆盖其余可玩角色，见 game/gacha.js）。
+// 剧情星图（req_new_universe_specific）直接按 specific.character 出队（handlers/universe.js）。
+function starterCharacterIds() {
+  const set = new Set();
+  for (const [, r] of gd.rows('d_srpg_map_specific')) {
+    const chars = Array.isArray(r.character) ? r.character : (r.character ? [r.character] : []);
+    for (const c of chars) {
+      const id = Number(c);
+      if (id > 0 && isPlayableCharacter(id)) set.add(id);
+    }
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+// 玩家默认头像 = 主角（信风 10501：除 1001001 外每张剧情图都在场，且新手池不含她）。
+const AVATAR_CHARACTER_ID = 10501;
+
 function characterSkills(charId) {
   const list = [];
   for (const [, s] of gd.rows('d_skill')) {
@@ -49,6 +74,17 @@ function buildCharacter(player, charId) {
   if (cfg.firstWeapon) {
     char.weapon_info = items.makeItem(player, cfg.firstWeapon, 1);
   }
+  // 默认皮肤（d_char_clothes.dressInitial==1）必须写进解锁列表：客户端判解锁只认
+  // own_*_skin_ids 三个列表，「默认皮肤自动解锁」的分支被注释掉了
+  // （UI_Panel_Dress_C:IsUnlockSkinId:719），不写的话装扮面板里初始服装也是锁的。
+  // 穿戴字段保持 0 —— 客户端对 0 自己回退到默认（UIUtils.GetIdolAndCharMeshByCharacterId）。
+  // 注意这里直接写进 char 对象：此刻角色还没挂进 player.characters（调用方负责 push），
+  // 走 skins.unlockSkins 的 doc 查找会扑空。
+  const skins = require('./skins');
+  for (const [dressType, skinId] of Object.entries(skins.defaultSkinIds(charId))) {
+    const slot = skins.DRESS_TYPES[dressType];
+    if (slot && skinId) char[slot.own].push(skinId);
+  }
   return char;
 }
 
@@ -59,7 +95,8 @@ function buildPlayerInfo(accountId) {
     register_seconds: String(now),
     player_name: `旅行者${accountId}`,
     player_sequence_name: `Traveler${accountId}`,
-    avatar_id: 10101, // d_character id domain (client uses it as character icon)
+    // 头像用 d_character id 域（客户端 PlayerSystem:GetAvatar 直接读它拼头像）
+    avatar_id: AVATAR_CHARACTER_ID,
     received_level_awards: [],
     daily_level_id_passed: [],
     // 每日危航（d_levels）：进行中的副本。客户端登录时读 fight_level_id > 0
@@ -206,6 +243,9 @@ function createPlayerDoc(accountId) {
       type_infos: {},  // type_id -> {no_up_times, no_5p_times, total_times, free_seconds, choose_times}
       records: [],     // global history ring (per type kept in type_infos)
       pending: {},     // list_id -> [GachaRecordInfo]
+      // 每个角色「被获得的次数」（不同幻形算同一角色）。第 2~7 次重复转化为该角色的
+      // 【星位之钉】，第 8 次起只给【珊瑚劫灰】*50 —— 见 game/gacha.js 与 d_word_cn 1904。
+      char_obtain_times: {},
     },
     shop: { shops: {}, next_refresh: 0 },
     mall: { purchase: {}, charge_point: 0, received_charge_points: [], month_card_expire: 0, month_card_last_tick: 0 },
@@ -227,7 +267,7 @@ function createPlayerDoc(accountId) {
     total_war: { schedule_id: 0, bosses: [], scores: {}, reward_received: false },
     home: { furniture: [], interact: {} },
   };
-  for (const id of initialCharacterIds()) {
+  for (const id of starterCharacterIds()) {
     doc.characters.push(buildCharacter(doc, id));
   }
   items.grantItems(doc, initialBagGrants());
@@ -235,4 +275,4 @@ function createPlayerDoc(accountId) {
   return doc;
 }
 
-module.exports = { createPlayerDoc, initialCharacterIds, buildCharacter, isPlayableCharacter };
+module.exports = { createPlayerDoc, initialCharacterIds, starterCharacterIds, buildCharacter, isPlayableCharacter, AVATAR_CHARACTER_ID };

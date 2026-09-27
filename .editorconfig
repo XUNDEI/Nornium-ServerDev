@@ -12,3 +12,10 @@ trim_trailing_whitespace = false
 [*.{lua,json}]
 # Reference assets keep whatever encoding/line endings the game shipped with.
 insert_final_newline = false
+
+[*.{bat,cmd}]
+# Windows 启动器：CRLF 是硬要求，且**内容必须保持纯 ASCII**。
+# cmd.exe 解析含多字节字符的批处理时会错位，把某个字符的残余字节当命令执行
+# （现象：'??' is not recognized as an internal or external command）。
+# 中文提示一律放 Node 脚本里打印（setup.js / index.js），见 REVERSE_ENGINEERING 坑 36。
+end_of_line = crlf

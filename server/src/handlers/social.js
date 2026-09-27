@@ -451,7 +451,14 @@ function handle(name) {
     req_build_home: handleBuildHome,
     req_receive_furniture_coin_from_interact: handleFurnitureCoin,
     // safe no-op responses for rarely used systems
-    req_player_universe_growth_reset: (s) => s.send('res_player_universe_growth_reset', {}),
+    // 远航支援商店重置：清空 node_infos 即自动退点（剩余点数 = 远航等级 − 已花费，
+    // 见 game/growth.js）。客户端收到应答后自己清本地列表（PlayerSystem.ResetSrpgGrowth）。
+    req_player_universe_growth_reset: (s) => {
+      if (!requirePlayer(s)) return;
+      s.player.player.player_universe_growth_node_infos = [];
+      savePlayer(s);
+      s.send('res_player_universe_growth_reset', {});
+    },
     // 月卡每日奖励在 handlers/mall.js（req_mall_receive_month_card）
     req_receive_total_war_reward: (s) => s.send('res_receive_total_war_reward', {}, 1), // NO_REWARD
     req_total_war_rank: (s) => s.send('res_total_war_rank', {

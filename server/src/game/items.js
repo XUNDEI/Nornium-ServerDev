@@ -21,6 +21,24 @@ function itemKind(itemId) {
   return 'stack';
 }
 
+// 武器类型 = d_bag_item_weapon.subType（1..7，见客户端 UIUtils.ItemWeaponType：
+// 1 巨刃 / 2 长剑 / 3 佩刀 / 4 枪械 / 5 礼器 / 6 宝轮 / 7 浮塔）。
+function weaponType(itemId) {
+  const cfg = gd.query('d_bag_item_weapon', itemId);
+  return cfg ? (Number(cfg.subType) || 0) : 0;
+}
+
+// 角色能用的武器类型 = d_character.profession（同一个 1..7 枚举，不是"职业"）。
+// 依据（客户端）：
+//  - UI_Panel_Detail_C.lua:70 用它拼武器类型图标 weapons_%s_png；
+//  - UI_Team_List_C.lua:196 用它给编队做武器类型筛选；
+//  - d_character.firstWeapon 全部是同类型的武器（10 个初始角色实测一致）。
+// 官方服务端同样会校验：ResCharacterEquipWeapon.ResultType 里有 INVALID_ITEM = 3。
+function characterWeaponType(charId) {
+  const cfg = gd.query('d_character', charId);
+  return cfg ? (Number(cfg.profession) || 0) : 0;
+}
+
 // Config row for any item id: weapons/equips/furniture live in their own tables
 // (each row still carries itemType/rarity/subParam), materials and currency in
 // d_bag_item.
@@ -152,7 +170,40 @@ function normalizeBag(player) {
   return changed;
 }
 
+// 老存档里 item_uuid 重复（同一件 uuid 被分给了多件道具），而服务端所有按 uuid
+// 定位的入口都用 `Array.prototype.find`（取数组里**第一个**命中），于是「客户端点的是
+// A，服务端操作的是 B」。典型症状：换武器换上了另一件（甚至另一武器类型的）武器、
+// 升级材料加错、精炼吃掉别的道具。见 REVERSE_ENGINEERING 坑 37。
+//
+// 修法：按稳定顺序（先背包数组顺序、再角色装备）遍历全部道具实例，每个 uuid 的
+// **第一次出现保持原样**（那正是历史上所有既有 `find` 会命中的那件，改它会改变
+// 已有语义），之后的重复项/零 uuid 项一律重新分配新 uuid。
+// 幂等：没有重复时不做任何改动、返回 0。
+function dedupeItemUuids(player) {
+  const seen = new Set();
+  const ordered = [];
+  for (const it of player.bag.items) ordered.push(it);
+  for (const c of player.characters || []) {
+    if (c.weapon_info) ordered.push(c.weapon_info);
+    for (const a of c.arm_infos || []) ordered.push(a);
+  }
+  let renamed = 0;
+  for (const it of ordered) {
+    const uuid = Number(it.item_uuid) || 0;
+    if (uuid > 0 && !seen.has(uuid)) {
+      seen.add(uuid);
+      continue;
+    }
+    let fresh = nextItemUuid(player);
+    while (seen.has(fresh)) fresh = nextItemUuid(player);
+    it.item_uuid = fresh;
+    seen.add(fresh);
+    renamed += 1;
+  }
+  return renamed;
+}
+
 module.exports = {
   CURRENCY, itemKind, itemConfig, makeItem, nextItemUuid, bagCount, findBagEntry, findStackEntry,
-  grantItems, consumeItems, normalizeBag,
+  grantItems, consumeItems, normalizeBag, dedupeItemUuids, weaponType, characterWeaponType,
 };

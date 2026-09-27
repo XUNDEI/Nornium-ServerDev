@@ -146,6 +146,37 @@ function characterIdOfGachaItem(itemid) {
   return 10000 + Math.floor((itemid % 1000000) / 100);
 }
 
+// d_gacha_token：重复/溢出产物的转化表。itemType 用的是「产出的语义类别」，
+// 与 d_gacha_item.itemType 不是同一套编号：
+//   1 = 重复角色（第 2~7 次）  2 = 重复角色（第 8 次起）
+//   3 = 武器                  4 = 家具
+// 实测：6★ 武器/家具 → 珊瑚劫灰 20；5★ → 5；4★ → 时枝化石 20；3★ → 10。
+function gachaToken(rarity, tokenType) {
+  return gd.rows('d_gacha_token').map(([, r]) => r)
+    .find((r) => Number(r.rarity) === Number(rarity) && Number(r.itemType) === Number(tokenType)) || null;
+}
+
+function tokenGrants(token) {
+  const out = [];
+  if (!token) return out;
+  if (Number(token.goldenToken) > 0) out.push({ item_id: items.CURRENCY.GACHA_HIGH, count: Number(token.goldenToken) });
+  if (Number(token.silverToken) > 0) out.push({ item_id: items.CURRENCY.GACHA_LOW, count: Number(token.silverToken) });
+  return out;
+}
+
+// 「同一角色被获得的次数」——同一角色的不同幻形算同一角色（d_word_cn 1904 的说明）。
+// 老存档/新号一开始没有这个计数，按「已经拥有 = 已获得 1 次」起步，于是第一次重复就
+// 落到第 2 次 → 给星位之钉，符合官方口径。
+function obtainTimes(player, charId, bump) {
+  const box = player.gacha.char_obtain_times || (player.gacha.char_obtain_times = {});
+  const owned = (player.characters || []).some((c) => Number(c.character_id) === Number(charId));
+  let n = Number(box[charId]);
+  if (!Number.isFinite(n) || n <= 0) n = owned ? 1 : 0;
+  if (bump) n += 1;
+  box[charId] = n;
+  return n;
+}
+
 // Apply a confirmed record batch to the player: returns list of summary strings.
 function grantRecords(session, records) {
   const grants = [];
@@ -155,22 +186,30 @@ function grantRecords(session, records) {
     if (!itemCfg) continue;
     if (itemCfg.itemType === 1) {
       const charId = characterIdOfGachaItem(itemCfg.itemid);
-      const owned = session.player.characters.find((c) => c.character_id === charId);
-      if (owned) {
-        const token = gd.rows('d_gacha_token').map(([, r]) => r)
-          .find((r) => r.rarity === itemCfg.rarity && r.itemType === 1);
-        if (token) {
-          if (token.goldenToken) grants.push({ item_id: items.CURRENCY.GACHA_HIGH, count: token.goldenToken });
-          if (token.silverToken) grants.push({ item_id: items.CURRENCY.GACHA_LOW, count: token.silverToken });
+      // 同一批十连里出两个同一个新角色也算「重复」，别把他加成两个角色对象。
+      const already = session.player.characters.find((c) => c.character_id === charId)
+        || newChars.find((c) => c.character_id === charId);
+      if (already) {
+        // 重复角色：第 2~7 次 → 该角色的【星位之钉】×1 + 珊瑚劫灰×20；
+        // 第 8 次及以后 → 珊瑚劫灰×50（d_word_cn 1904）。星位之钉 id = d_character.inbornItem。
+        const times = obtainTimes(session.player, charId, true);
+        if (times <= 7) {
+          const nail = require('./talent').nailItemId(charId);
+          if (nail) grants.push({ item_id: nail, count: 1 });
+          for (const g of tokenGrants(gachaToken(itemCfg.rarity, 1))) grants.push(g);
+        } else {
+          for (const g of tokenGrants(gachaToken(itemCfg.rarity, 2))) grants.push(g);
         }
       } else {
+        obtainTimes(session.player, charId, true);
         const { buildCharacter } = require('./player_new');
         newChars.push(buildCharacter(session.player, charId));
       }
-    } else if (itemCfg.itemType === 10) {
-      grants.push({ item_id: itemCfg.itemid, count: 1 });
     } else {
       grants.push({ item_id: itemCfg.itemid, count: 1 });
+      // 武器（10）/家具（93）也按官方口径给转化货币（每件都给，重复与否都算获得）。
+      const tokenType = itemCfg.itemType === 10 ? 3 : (itemCfg.itemType === 93 ? 4 : 0);
+      if (tokenType) for (const g of tokenGrants(gachaToken(itemCfg.rarity, tokenType))) grants.push(g);
     }
   }
   const ntfs = [];

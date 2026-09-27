@@ -2,6 +2,7 @@
 const gd = require('../gamedata');
 const items = require('../game/items');
 const U = require('../game/universe');
+const G = require('../game/growth');
 const { savePlayer, requirePlayer } = require('./sync');
 const log = require('../logger');
 
@@ -13,6 +14,30 @@ function uni(session) {
   const u = session.player.universe;
   if (!u || !u.active) return null;
   return u;
+}
+
+// 星图格子下发的唯一入口（坑 42）。客户端已知格子集合 == 服务端 state > 0 的格子集合：
+// 新格（0 -> >=1）必须走 ntf_main_pos_info——客户端只有这条消息会 AddMainPos 重建 actor
+// 并播 Dissolve / 重抓战争迷雾；对客户端没学过的 hex 发 ntf_main_pos_state_change 会在
+// SrpgModel:UpdateMainPos 里直接「attempt to index a nil value」。
+function sendPosInfo(session, cells) {
+  if (!cells || !cells.length) return;
+  session.send('ntf_main_pos_info', { main_pos_infos: cells.map((c) => U.encMainPos(c)) });
+}
+
+function sendPosStateChange(session, cells) {
+  if (!cells || !cells.length) return;
+  session.send('ntf_main_pos_state_change', {
+    main_pos_state_changes: cells.map((c) => ({ hex: U.encHex(c.hex), state: c.state })),
+  });
+}
+
+// 一次揭示：先新格（造格子 + Dissolve + 重抓 FOW），后已知格的状态变化。
+// 首领信息（ntf_boss_info）永远排在这两者之后（坑 26/30——UpdateBossLines 的 astar
+// 需要落点格与整条走廊都是 state > 1）。
+function sendReveal(session, rev) {
+  sendPosInfo(session, rev.fresh);
+  sendPosStateChange(session, rev.changed);
 }
 
 function sendUniverseInfo(session, u, resChanges, hpDelta) {
@@ -116,7 +141,10 @@ function triggerFor(kind, levelId, win) {
 //   30  遭遇战        effectConfig = [fightLevelId]
 //   60  发放道具      effectConfig = [item_id, itemType, count, ...]（可多组）
 //   201 剧情          effectConfig = [storyId, ...]（客户端在 ntf_effect_trigger_begin 自己播）
-// 其余（9/10/17/21/99/100/121/122）语义未确认，只记日志不处理；其中 121/122 是卡位标记
+//   99  终点/剧情收尾  effectConfig/effectDisplay = [10]（SpecialDisplay.SetAbort）；
+//                     踩到「终点」格（d_srpg_main_pos_base 99999）时用它的 effectDisplay
+//                     让客户端把 EndReason 改判为 Abort → 结束航行（见下方 case 99）
+// 其余（9/10/17/21/100/121/122）语义未确认，只记日志不处理；其中 121/122 是卡位标记
 // （effectConfig 就是 d_srpg_card_pos 的行号），而格子类型已经由 attachForPos 按
 // d_srpg_main_pos_base 判定，不需要它。
 function applyEffect(session, u, triggerId) {
@@ -206,6 +234,18 @@ function applyEffect(session, u, triggerId) {
     case 201: // 剧情：客户端在 ntf_effect_trigger_begin 里自己播
       rewardWindow(session, triggerId, () => {});
       return true;
+    case 99: { // 终点/剧情收尾：effectDisplay 10 = SpecialDisplay.SetAbort（「结束航行」）
+      // 客户端在 NTF_UNIVERSE_CLEAR 处理器里读「当前打开的 trigger」的 effectDisplay
+      // 来改判 EndReason（SrpgController.lua:299-326），所以窗口必须保持打开到
+      // ntf_universe_clear 发出之后再关：begin(99) → universe_clear → end(99)。
+      // EndReason=Abort 且 mapType==0 时客户端 QuestSystem 记 60005「完成某个剧情星图」，
+      // 主线「前往水星天」这类任务由此推进（QuestSystem.lua:1299-1315）。
+      session.send('ntf_effect_trigger_begin', { trigger_id: triggerId });
+      session.send('ntf_universe_clear', { result: true });
+      session.send('ntf_effect_trigger_end', {});
+      settleRun(session, true);
+      return true;
+    }
     default:
       // 每种未确认的类型只记一次，免得每次探索都刷屏（教学格子上普遍挂着 [2,3]）
       if (!warnedEffectTypes.has(Number(cfg.effectType))) {
@@ -221,6 +261,7 @@ function applyEffect(session, u, triggerId) {
 function reqNewUniverse(session, req) {
   if (!requirePlayer(session)) return;
   const u = U.newUniverse(req);
+  U.applyGrowthBonuses(u, session.player);
   session.player.universe = u;
   U.makeMission(u);
   session.send('res_new_universe', { universe_info: U.buildUniverseInfo(u) });
@@ -241,7 +282,18 @@ function reqNewUniverse(session, req) {
 function reqNewUniverseSpecific(session, req) {
   if (!requirePlayer(session)) return;
   const specific = gd.query('d_srpg_map_specific', Number(req.specific_id ?? 0));
-  const charIds = session.player.characters.slice(0, 3).map((c) => c.character_id);
+  // 剧情星图的出场角色由配置声明（d_srpg_map_specific.character：教学图 1000309 是
+  // [10501 信风]，1000301 是 [10501, 11202 鱼啄雨]，1001001 只有 [11202]）。只取其中
+  // 玩家**已拥有**的 —— 客户端没有 character_info 的角色渲染不出队伍；声明为空或
+  // 全部未拥有时才退回「已拥有角色的前 3 个」。
+  const ownedIds = new Set(session.player.characters.map((c) => Number(c.character_id)));
+  const declared = Array.isArray(specific?.character)
+    ? specific.character.map(Number).filter((id) => id > 0)
+    : [];
+  let charIds = declared.filter((id) => ownedIds.has(id));
+  if (!charIds.length) {
+    charIds = session.player.characters.slice(0, 3).map((c) => c.character_id);
+  }
   const params = {
     difficulty_value: specific?.difficulty ?? 1,
     main_planet_id: specific?.universe ?? 101,
@@ -254,6 +306,7 @@ function reqNewUniverseSpecific(session, req) {
   // mapType-1's substitutionCost — see 坑 25.
   const u = U.newUniverse(params, specific?.map ?? null);
   u.specific_id = Number(req.specific_id ?? 0);
+  U.applyGrowthBonuses(u, session.player);
   session.player.universe = u;
   U.makeMission(u);
   session.send('res_new_universe_specific', { universe_info: U.buildUniverseInfo(u) });
@@ -297,17 +350,14 @@ function reqExplore(session, req) {
   if (!pos) return session.send('res_explore', {}, 4); // NO_POS
   if (pos.state !== 2) return session.send('res_explore', {}, 5); // STATE_INVALID
 
+  // 不发消息：客户端 SrpgController:ExploreTo 自己把踩到的格子本地置 3。
   pos.state = 3;
   u.step += 1;
   session.send('res_explore', {});
 
-  // reveal frontier (cascades through auto-explored transit cells)
-  const changed = U.revealFrontier(u.main_pos, hex);
-  if (changed.length) {
-    session.send('ntf_main_pos_state_change', {
-      main_pos_state_changes: changed.map((c) => ({ hex: U.encHex(c.hex), state: c.state })),
-    });
-  }
+  // reveal frontier (cascades through auto-explored transit cells)：新格走
+  // ntf_main_pos_info「造格子」，已知格走 ntf_main_pos_state_change（坑 42）。
+  sendReveal(session, U.revealFrontier(u.main_pos, hex));
 
   exploreConsequence(session, u, pos);
   if (!session.player.universe) return savePlayer(session);
@@ -316,11 +366,7 @@ function reqExplore(session, req) {
   //（d_word_cn 113211012 / 113220008）。「每回合」在这里就是花掉一步的这次 req_explore。
   // 先推进（本回合新出现的波次不会被同时推进，见下），再补发到点的波次。
   const adv = U.advanceBosses(u);
-  if (adv.revealed.length) {
-    session.send('ntf_main_pos_state_change', {
-      main_pos_state_changes: adv.revealed.map((c) => ({ hex: U.encHex(c.hex), state: c.state })),
-    });
-  }
+  sendReveal(session, { fresh: adv.revealedFresh, changed: adv.revealedChanged });
   if (adv.changed) ntfBossInfo(session, u);
   if (adv.damage > 0) sendUniverseInfo(session, u, {}, -adv.damage);
   if (adv.dead) {
@@ -458,17 +504,14 @@ function ntfBossInfo(session, u) {
 }
 
 // Announce any d_srpg_level_boss.appearTime wave the current step has reached.
-// The reveal must be pushed before ntf_boss_info: SrpgModel:UpdateBossInfo runs
-// UpdateBossLines → astar from the boss hex, and a start node the client still
-// considers unreachable throws "table index is nil" (坑 26).
+// The reveal (fresh cells as ntf_main_pos_info, then state changes) must be
+// pushed before ntf_boss_info: SrpgModel:UpdateBossInfo runs UpdateBossLines →
+// astar from the boss hex, and a start node the client still considers
+// unreachable throws "table index is nil" (坑 26).
 function announceDueBossWaves(session, u) {
-  const revealed = U.spawnDueBossWaves(u);
-  if (!revealed) return false;
-  if (revealed.length) {
-    session.send('ntf_main_pos_state_change', {
-      main_pos_state_changes: revealed.map((c) => ({ hex: U.encHex(c.hex), state: c.state })),
-    });
-  }
+  const rev = U.spawnDueBossWaves(u);
+  if (!rev) return false;
+  sendReveal(session, rev);
   ntfBossInfo(session, u);
   return true;
 }
@@ -857,8 +900,26 @@ function reqUniverseChangeCharacter(session, req) {
   savePlayer(session);
 }
 
-function reqPlayerUniverseGrowth(session) {
-  session.send('res_player_universe_growth', {}, 1); // MAX_RANK: growth tree stub
+// 远航支援商店购买（参考客户端 UI_SRPG_GrowthShop_C.lua:96-156：result=0 时客户端
+// 自己本地 +1，应答不需要带节点列表）。点数经济见 game/growth.js —— MAX_RANK(1) /
+// RES_NOT_ENOUGH(2) 是 ResPlayerUniverseGrowth.ResultType 的官方错误码。
+function reqPlayerUniverseGrowth(session, req) {
+  if (!requirePlayer(session)) return;
+  const nodeId = Number(req?.node_id ?? 0);
+  const cfg = gd.query('d_srpg_growth', nodeId);
+  const rank = G.nodeRank(session.player, nodeId);
+  if (!cfg || rank >= (Number(cfg.level) || 0)) {
+    session.send('res_player_universe_growth', {}, 1); // MAX_RANK
+    return;
+  }
+  if (G.freePoints(session.player) < (Number(cfg.cost) || 0)) {
+    session.send('res_player_universe_growth', {}, 2); // RES_NOT_ENOUGH
+    return;
+  }
+  G.levelUpNode(session.player, nodeId);
+  savePlayer(session);
+  log.info(`[growth] node ${nodeId} -> rank ${rank + 1}`);
+  session.send('res_player_universe_growth', {});
 }
 
 function handle(name) {

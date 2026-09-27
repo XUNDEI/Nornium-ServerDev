@@ -39,6 +39,7 @@ const handlers = {
   req_character_level_up: character.reqCharacterLevelUp,
   req_character_level_break: character.reqCharacterLevelBreak,
   req_character_skill_level_up: character.reqCharacterSkillLevelUp,
+  req_character_unlock_talent: character.reqCharacterUnlockTalent,
   req_character_equip_weapon: character.reqCharacterEquipWeapon,
   req_character_swap_weapon: character.reqCharacterSwapWeapon,
   req_character_equip_arm: character.reqCharacterEquipArm,

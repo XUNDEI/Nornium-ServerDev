@@ -1,6 +1,8 @@
 // Character & bag operations available in the main city (M1+).
 const gd = require('../gamedata');
 const items = require('../game/items');
+const talent = require('../game/talent');
+const log = require('../logger');
 const { savePlayer, requirePlayer } = require('./sync');
 
 function findChar(session, charId) {
@@ -96,6 +98,38 @@ function reqCharacterSkillLevelUp(session, req) {
   savePlayer(session);
 }
 
+// 点亮星位（客户端 UI 上叫「激活」，角色页的「星位」页签）。
+//
+// 这是过去**完全缺失**的处理器：请求体只有 character_id + talent_id，材料由客户端
+// 本地扣（见 game/talent.js 头部与坑 40）。缺失时 dispatcher 的兜底分支会回一个
+// **空的 res_character_unlock_talent**（result 默认 0 = OK），于是客户端在本地把星位
+// 点亮、材料也扣了，服务端却什么都没记 —— 重登/重启后星位全没（玩家的「星位升级不保存」）。
+// 现在按数据表回算：归属校验 → 重复 → 前置孔位 → openNeed 条件 → 扣星位之钉 → 写档。
+function reqCharacterUnlockTalent(session, req) {
+  if (!requirePlayer(session)) return;
+  const char = findChar(session, req.character_id);
+  if (!char) return session.send('res_character_unlock_talent', {}, talent.CODE.NO_CHARACTER);
+  const res = talent.unlock(session.player, char, Number(req.talent_id ?? 0));
+  session.send('res_character_unlock_talent', {}, res.code);
+  if (res.code !== talent.CODE.OK) return;
+  // 客户端已经自己扣过一遍本地材料，这里推的是**权威**增量，让它对齐服务端。
+  if (res.ntf) session.send('ntf_item_info', res.ntf);
+  ntfCharacter(session, char);
+  savePlayer(session);
+  log.info(`[character] 角色 ${char.character_id} 点亮星位 ${req.talent_id}`);
+}
+
+// 武器只能装到「同一武器类型」的角色身上（类型 = d_bag_item_weapon.subType =
+// d_character.profession）。这条校验必须由服务端做，因为客户端的武器列表是**按当前
+// 已装备武器的 subType 过滤的**（UI_Weapon_Change_C.lua:85-104），一旦装错类型，
+// 玩家在 UI 里就再也看不到本类型的武器、只能继续装错类型的武器 —— 错误会自我固化且
+// 随存档持久化。官方协议里也有这个错误码（ResCharacterEquipWeapon INVALID_ITEM = 3）。
+function weaponTypeMismatch(char, weaponInfo) {
+  const want = items.characterWeaponType(char.character_id);
+  if (!want) return false; // 表里没有类型（开发占位角色）时不拦
+  return items.weaponType(weaponInfo.item_id) !== want;
+}
+
 function reqCharacterEquipWeapon(session, req) {
   if (!requirePlayer(session)) return;
   const char = findChar(session, req.character_id);
@@ -104,6 +138,12 @@ function reqCharacterEquipWeapon(session, req) {
     (it) => Number(it.item_uuid) === uuid && items.itemKind(it.item_id) === 'weapon',
   );
   if (!char || !entry) return session.send('res_character_equip_weapon', {}, 2);
+  if (weaponTypeMismatch(char, entry)) {
+    log.warn(`[character] 拒绝装备：武器 ${entry.item_id}（类型 `
+      + `${items.weaponType(entry.item_id)}）与角色 ${char.character_id}（类型 `
+      + `${items.characterWeaponType(char.character_id)}）不匹配`);
+    return session.send('res_character_equip_weapon', {}, 3); // INVALID_ITEM
+  }
   // previous weapon back to bag, new one onto the character
   if (char.weapon_info) {
     session.player.bag.items.push(char.weapon_info);
@@ -120,6 +160,15 @@ function reqCharacterSwapWeapon(session, req) {
   const a = findChar(session, req.character_id);
   const b = findChar(session, req.other_character_id);
   if (!a || !b) return session.send('res_character_swap_weapon', {}, 1);
+  // 交换后每把武器都必须落在同类型的角色身上；类型不同（或任一方没有武器，
+  // 会让另一方变成"无武器"状态，客户端 UI_Weapon_Change_C:87 会直接炸）都拒绝。
+  const ta = items.characterWeaponType(a.character_id);
+  const tb = items.characterWeaponType(b.character_id);
+  if (!a.weapon_info || !b.weapon_info || (ta && tb && ta !== tb)) {
+    log.warn(`[character] 拒绝交换武器：角色 ${a.character_id}（类型 ${ta}）/ `
+      + `${b.character_id}（类型 ${tb}）`);
+    return session.send('res_character_swap_weapon', {}, 3); // INVALID_ITEM
+  }
   const tmp = a.weapon_info;
   a.weapon_info = b.weapon_info;
   b.weapon_info = tmp;
@@ -129,38 +178,97 @@ function reqCharacterSwapWeapon(session, req) {
   savePlayer(session);
 }
 
+// 穿戴皮肤（装扮面板的「装扮」按钮 → req_character_change_skin）。请求体
+// {character_id, character_skin_id, mecha_skin_id, city_skin_id}，客户端只在
+// result=OK 时把缓存的三个 id 应用到本地角色对象（CharacterSystem.lua:279-296）。
+// 服务端必须校验「真的解锁过这张皮肤」：判据是角色 doc 的 own_*_skin_ids 三个列表
+// （与客户端 UIUtils.CharSkinIsUnlock 同一套），0 = 默认（客户端自己回退到
+// dressInitial==1 的那张）。没解锁回 NO_SKIN(3)，不写档。
 function reqCharacterChangeSkin(session, req) {
   if (!requirePlayer(session)) return;
   const char = findChar(session, req.character_id);
-  if (!char) return session.send('res_character_change_skin', {}, 1);
-  if (req.character_skin_id !== undefined) char.character_skin_id = Number(req.character_skin_id);
-  if (req.mecha_skin_id !== undefined) char.mecha_skin_id = Number(req.mecha_skin_id);
-  if (req.city_skin_id !== undefined) char.city_skin_id = Number(req.city_skin_id);
+  if (!char) return session.send('res_character_change_skin', {}, 1); // NO_CHARACTER
+  const skins = require('../game/skins');
+  const wants = [
+    // [角色 doc 字段, 请求字段, 该字段对应的 dressType]
+    ['character_skin_id', req.character_skin_id, 1],
+    ['mecha_skin_id', req.mecha_skin_id, 2],
+    ['city_skin_id', req.city_skin_id, 3],
+  ];
+  for (const [field, value, dressType] of wants) {
+    if (value === undefined) continue;
+    const id = Number(value) || 0;
+    if (id === 0) {
+      // 0 = 恢复默认：客户端对 0 自己回退到 dressInitial==1 的那张
+      // （UIUtils.GetIdolAndCharMeshByCharacterId:2008）。装扮面板实际发的总是具体 id
+      // （未改动的那路会发默认 id），0 只来自手工/工具调用。
+      char[field] = 0;
+      continue;
+    }
+    const row = skins.clothesRow(id);
+    if (!row || Number(row.dressType) !== dressType || !skins.isOwned(char, id)) {
+      log.warn(`[character] 拒绝换肤：角色 ${char.character_id} 未解锁皮肤 ${id}（字段 ${field}）`);
+      return session.send('res_character_change_skin', {}, 3); // NO_SKIN
+    }
+    char[field] = id;
+  }
   session.send('res_character_change_skin', {});
   ntfCharacter(session, char);
   savePlayer(session);
 }
 
+// 使用道具。**不要给被消耗的道具推 ntf_item_info**：客户端在 res_use_item OK 后会本地
+// AddItemCount(-count)（BackpackSystem.lua 尾部），而 ntf 的 delta 是加法语义——再推一份
+// 就是双重扣减（同坑 23 的「静默扣票」）。各类型在客户端本地做的解锁/创建动作，服务端
+// 必须同步落盘，否则重登即丢：
+//  - 皮肤卡（itemType 92，subParam = d_char_clothes 皮肤 id）→ 写角色的 own_*_skin_ids
+//    （客户端同款逻辑在 BackpackSystem.lua:229-247）
+//  - 角色卡（itemType 12 subType 6，subParam[1] = 角色 id）→ 没有就创建角色
+//  - 锻造蓝图（subType 9，subParam = 装备蓝图 id）→ 并进 player_info.arm_blueprint_ids
+//  （旧实现在这里把 subParam 值当成道具 id 发进背包，制造了一堆幽灵道具——皮肤 id 和
+//   角色 id 根本不是道具 id，见 migrate.js 的幽灵道具清理）
 function reqUseItem(session, req) {
   if (!requirePlayer(session)) return;
   const uuid = Number(req.item_uuid ?? 0);
-  const count = Number(req.count ?? 1);
+  const count = Math.max(1, Number(req.count ?? 1));
   const entry = session.player.bag.items.find((it) => Number(it.item_uuid) === uuid);
-  if (!entry) return session.send('res_use_item', {}, 1); // NO_ITEM
-  const cfg = gd.query('d_bag_item', entry.item_id);
-  const grants = [];
-  if (cfg && cfg.subParam) {
-    // CharCard / BluePrint style items: subParam carries unlock ids
-    const sub = Array.isArray(cfg.subParam) ? cfg.subParam : Object.values(cfg.subParam);
-    for (const v of sub) if (Number(v) > 0) grants.push({ item_id: Number(v), count: 1 });
+  if (!entry || entry.count < count) return session.send('res_use_item', {}, 1); // NO_ITEM
+  const cfg = gd.query('d_bag_item', entry.item_id) || {};
+  const sub = Array.isArray(cfg.subParam)
+    ? cfg.subParam
+    : Object.values(cfg.subParam || {});
+  const skins = require('../game/skins');
+
+  if (Number(cfg.itemType) === 92) {
+    // 皮肤卡：服务端解锁（幂等），整份角色对象推回去（ntf_character_info 是整体替换，
+    // 客户端刚在 res 处理器里本地插过一遍，推回去保证两边一致且无重复项）
+    for (const char of skins.unlockSkins(session.player, skins.skinItemSkinIds(entry.item_id))) {
+      ntfCharacter(session, char);
+    }
+  } else if (Number(cfg.itemType) === 12 && Number(cfg.subType) === 6) {
+    // 角色卡：解锁角色（含专属武器/技能/默认皮肤）。已拥有则无事发生（客户端本来
+    // 也会在本地提示「你已有此角色」）。
+    const charId = Number(sub[0]) || 0;
+    if (charId > 0 && !session.player.characters.some((c) => c.character_id === charId)) {
+      const { buildCharacter } = require('../game/player_new');
+      const char = buildCharacter(session.player, charId);
+      session.player.characters.push(char);
+      ntfCharacter(session, char);
+      log.info(`[character] 角色卡解锁角色 ${charId}`);
+    }
+  } else if (Number(cfg.itemType) === 12 && Number(cfg.subType) === 9) {
+    // 锻造蓝图（1209xxx）：客户端本地把 subParam 塞进 arm_blueprint_ids，服务端同步
+    for (const v of sub) {
+      const bp = Number(v);
+      if (bp > 0 && !session.player.player.arm_blueprint_ids.some((x) => Number(x) === bp)) {
+        session.player.player.arm_blueprint_ids.push(bp);
+      }
+    }
   }
-  const ntf = items.grantItems(session.player, [{ item_id: entry.item_id, count: -count, item_uuid: entry.item_uuid }]);
+
+  entry.count -= count;
+  if (entry.count <= 0) session.player.bag.items.splice(session.player.bag.items.indexOf(entry), 1);
   session.send('res_use_item', {});
-  if (ntf) session.send('ntf_item_info', ntf);
-  if (grants.length) {
-    const grantNtf = items.grantItems(session.player, grants);
-    session.send('ntf_item_info', grantNtf);
-  }
   savePlayer(session);
 }
 
@@ -333,6 +441,7 @@ function gearToStuff(gear) {
 module.exports = {
   findChar, ntfCharacter,
   reqCharacterLevelUp, reqCharacterLevelBreak, reqCharacterSkillLevelUp,
+  reqCharacterUnlockTalent,
   reqCharacterEquipWeapon, reqCharacterSwapWeapon, reqCharacterChangeSkin,
   reqCharacterEquipArm, reqCharacterUnequipArm, reqCharacterSwapArm,
   reqUseItem, reqItemLock, reqWeaponLevelUp,

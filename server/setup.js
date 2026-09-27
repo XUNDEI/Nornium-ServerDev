@@ -7,7 +7,12 @@
 //   3. 把客户端需要的 channel.lua / version.lua 写进
 //      %LOCALAPPDATA%\Nornium\Saved\（lox 的接入点，见 REVERSE_ENGINEERING.md 3.1）
 //
-// 用法：node setup.js [--reset] [--game-path=<dir>] [--yes]
+// 用法：node setup.js [--reset] [--game-path=<dir>] [--yes] [--from-bat]
+//
+// --from-bat：由「点我启动.bat」调用的。启动器本身是纯 ASCII（cmd.exe 解析含多字节
+// 字符的批处理会错位，见 REVERSE_ENGINEERING 坑 36），所以**所有中文提示都在这里打印**，
+// 并且「第 2 步」的文案只有从 bat 调用时才出现（手工跑 `node setup.js` 时那段"接下来会
+// 拉起游戏"的话不成立）。
 
 /* eslint-disable no-console */
 'use strict';
@@ -20,7 +25,7 @@ const { spawnSync } = require('child_process');
 
 // --- 必须与 index.js 保持一致 ------------------------------------------------
 const TCP_PORT = 8101;
-const HTTP_PORT = 8089;
+const HTTP_PORT = 9089;
 const CHANNEL = 'local_dev';
 const CLIENT_VERSION = '1.0.1';
 const CHANNEL_CODE = 'cb4_alpha_3_steam';
@@ -50,11 +55,17 @@ const flagValue = (name) => {
 };
 const RESET = hasFlag('--reset') || hasFlag('-r');
 const ASSUME_YES = hasFlag('--yes') || hasFlag('-y');
+const FROM_BAT = hasFlag('--from-bat');
 const CLI_GAME_PATH = flagValue('--game-path');
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+// stdin/stdout 只在真的要提问时才接（被 require 进单测时不该抢 stdin）
+let rl = null;
 function ask(question) {
+  if (!rl) rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => rl.question(question, (answer) => resolve(String(answer).trim())));
+}
+function closeRl() {
+  if (rl) { rl.close(); rl = null; }
 }
 
 function line(char = '-') {
@@ -121,6 +132,22 @@ function ensureDependencies() {
 
 // ------------------------------------------------------------ 2. 定位游戏目录
 
+// Windows 路径大小写不敏感：D:\Steam\... 与 d:\steam\... 指向同一个目录。
+// 但 Steam 注册表里的 SteamPath 与本仓库所在路径的大小写**经常不一致**
+// （详见下面的 detectCandidates），字符串比较会把同一个目录算成两个候选，
+// 于是向导列出「1. D:\...  2. d:\...」两条一模一样的路径让用户选。
+// canonicalPath：展示用——盘符统一大写、分隔符统一反斜杠；
+// pathKey：去重用——再叠一层小写（Windows 文件系统大小写不敏感）。
+function canonicalPath(p) {
+  const abs = path.resolve(String(p));
+  if (os.platform() !== 'win32') return abs;
+  return abs.replace(/\//g, '\\').replace(/^([a-z]):/, (_, d) => `${d.toUpperCase()}:`);
+}
+
+function pathKey(p) {
+  return canonicalPath(p).toLowerCase();
+}
+
 function isGameRoot(dir) {
   try {
     return fs.existsSync(path.join(dir, GAME_EXE_REL));
@@ -145,7 +172,7 @@ function resolveGameRoot(input) {
   ];
   for (const c of candidates) {
     try {
-      if (isGameRoot(c)) return path.resolve(c);
+      if (isGameRoot(c)) return canonicalPath(c);
     } catch (_) { /* ignore bad segments */ }
   }
   return null;
@@ -190,10 +217,19 @@ function detectCandidates() {
   // Steam 的安装目录与本作的「游戏根目录」不一定重合：本机的 Steam installdir 是
   // …\steamapps\common\Nornium，真正的游戏根是它里面的 …\Nornium（有 Binaries/Win64）。
   // 两种都支持。
+  //
+  // 去重必须用 pathKey（大小写无关）：本仓库躺在 D:\Steam\…，而 Steam 注册表里的
+  // SteamPath 常常写成 d:\steam\…，两个来源会解析出同一个目录的不同大小写写法，
+  // 字符串比较就会把它当成两个候选列出来。
   const found = [];
+  const seen = new Set();
   const add = (dir) => {
     const resolved = resolveGameRoot(dir);
-    if (resolved && !found.includes(resolved)) found.push(resolved);
+    if (!resolved) return;
+    const key = pathKey(resolved);
+    if (seen.has(key)) return;
+    seen.add(key);
+    found.push(resolved);
   };
 
   // 本项目就躺在游戏目录里 (…\steamapps\common\Nornium\ServerDev)，先试它
@@ -293,10 +329,13 @@ function saveConfig(cfg) {
 }
 
 async function main() {
+  // 启动器（点我启动.bat）是纯 ASCII，中文横幅由这里打印，见文件头注释
   line('=');
-  console.log(' Nornium ServerDev —— 首次启动向导');
+  console.log(' Nornium ServerDev - 失乐星图本地私服');
   console.log(' 完全免费开源 · 若你是付费买到的，请联系卖家退款，你被骗了');
   line('=');
+  console.log('');
+  console.log('---- 第 1 步：初始化配置（自动完成，不需要手动拷文件） ----');
 
   step(1, '检查运行环境');
   if (!checkNode() || !checkReferenceAssets()) return 1;
@@ -319,7 +358,7 @@ async function main() {
       return 1;
     }
   } else if (cfg && isGameRoot(cfg.game_path)) {
-    gamePath = path.resolve(cfg.game_path);
+    gamePath = canonicalPath(cfg.game_path);
     console.log(`    使用已保存的配置：${gamePath}`);
   } else {
     if (cfg) warn(`已保存的路径失效了（${cfg.game_path}），重新配置。`);
@@ -371,20 +410,41 @@ async function main() {
   console.log(`    配置已保存到 ${path.relative(REPO_ROOT, CONFIG_FILE)}`);
 
   line('=');
-  console.log(' 配置完成。接下来会启动服务端，然后自动打开游戏。');
-  console.log(' 登录界面随便填账号密码，点「注册」即可进入主城。');
-  console.log(' 存档在 server\\data\\，删掉它就能重置。');
+  console.log(' 配置完成。');
   line('=');
+  console.log('');
+  if (FROM_BAT) {
+    // 启动器只会在本脚本成功返回后再 node index.js，所以这里说明的是"接下来"
+    console.log('---- 第 2 步：启动服务端 ----');
+    console.log(autoLaunch
+      ? ' 接下来会用 Steam 拉起游戏（服务端同时启动），稍等几秒即可看到游戏窗口。'
+      : ' 请在 Steam 里手动启动《失乐星图》。');
+    console.log(' 游戏登录界面随便填账号和密码，点「注册」就能进主城。');
+    console.log(' 停止服务请在本窗口输入 stop 回车（或按 Ctrl+C）。');
+    console.log(' 存档在 server\\data\\，删掉它就能重置；');
+    console.log(' 想找回旧存档：在本窗口输入 load <备份目录>（见 README）。');
+    line('=');
+  } else {
+    console.log(' 接下来启动服务端：cd server 后 npm start，或直接双击根目录的「点我启动.bat」。');
+    console.log(' 存档在 server\\data\\，删掉它就能重置；');
+    console.log(' 想找回旧存档：在服务端窗口输入 load <备份目录>（见 README）。');
+    line('=');
+  }
   return 0;
 }
 
-main()
-  .then((code) => {
-    rl.close();
-    process.exit(code);
-  })
-  .catch((err) => {
-    rl.close();
-    console.error('初始化失败：', err && (err.stack || err.message));
-    process.exit(1);
-  });
+// 被 require 进单测时不要执行向导（setup_check.js 会拿 canonicalPath/detectCandidates 做断言）
+if (require.main === module) {
+  main()
+    .then((code) => {
+      closeRl();
+      process.exit(code);
+    })
+    .catch((err) => {
+      closeRl();
+      console.error('初始化失败：', err && (err.stack || err.message));
+      process.exit(1);
+    });
+}
+
+module.exports = { canonicalPath, pathKey, resolveGameRoot, detectCandidates, isGameRoot };
