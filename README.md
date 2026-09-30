@@ -65,7 +65,7 @@ Steam 启动客户端
 ### 前置条件
 
 - Windows（客户端仅支持 Windows）
-- **Node.js ≥ 18**（实测 v24）
+- **Node.js ≥ 18**（实测 v24；建议从 nodejs.org 下 LTS 安装包，装的时候勾上 **Add to PATH**）
 - 通过 Steam 安装《失乐星图 Nornium》
 
 ### 1. 双击根目录的「点我启动.bat」
@@ -82,6 +82,24 @@ Steam 启动客户端
 
 以后再双击就是秒开：路径缓存存在 `server/runtime-config.json`。想重新配置就删掉它，
 或者跑 `cd server && node setup.js --reset`。
+
+> **出问题先自查**：`cd server` 后跑 `node setup.js --check`（别名 `--doctor`，**只读**：
+> 不改文件、不装依赖、不写配置）。它会依次打印 Node 版本与路径、npm 实际会用的命令行、
+> `reference/` 资产、依赖装了没（以及下次启动会不会再走安装）、游戏目录与
+> `channel.lua` / `version.lua` 的状态、以及**这份代码是不是修好的版本**，最后给一句结论。
+> 依赖缺失时它也能跑（不 spawn 任何外部命令），这是它跟 `preflight.js` 的区别。
+>
+> **卡在第 1 步「依赖安装失败」？** 向导会自己装依赖（protobufjs / des.js）并打印 npm 的
+> 原始报错。万一失败，手动补一次就好：
+> 打开 `server` 文件夹 → 在资源管理器**地址栏输入 `cmd` 回车**（或 Shift+右键 →
+> 在此处打开终端）→ 执行 `npm install` → 重新双击「点我启动.bat」。
+> 注意 `npm install` 是一条**命令**，不是文件或安装包，**不要去 Node 的安装目录里找它**；
+> 若提示 `'npm' 不是内部或外部命令`，说明装 Node.js 时没勾 **Add to PATH**（重装 LTS 版并勾上）；
+> 若只是下载慢/超时，换国内镜像：`npm install --registry=https://registry.npmmirror.com`。
+> （`node_modules/` 不进版本库，所以每次全新下载仓库都要装一次；只有第一次。）
+> 另外：本项目的**发行压缩包自带 `node_modules`**，解压即用，第 1 步会直接显示
+> 「OK 依赖已就绪」；**只有从源码仓库（clone 或 GitHub 的 Download ZIP）拿的包**才会走上面
+> 那一步（v0.2.0 及更早版本在这里必定失败，已在最新版修复）。
 
 > **贡献注意**：`点我启动.bat` 是**纯 ASCII + CRLF、无 BOM**，请勿往里加中文。
 > cmd.exe 解析含多字节字符的批处理时会错位，凭空报一行
@@ -324,7 +342,7 @@ npm run test:skins              :: 皮肤解锁/换装校验/开局角色/幽灵
 npm run test:console            :: 服务端控制台指令 restore/load/export/allweapons/addchar/allskins/stop/status + 参数校验单测（无需启动服务端）
 npm run test:editor             :: 存档编辑器 静态页/路径穿越防护/API/编辑操作/等级与光淬编辑/命座发放与星位点亮/服务端管理接口/导出单测（无需启动服务端）
 npm run test:editor-ui          :: 编辑器前端渲染回归（最小 DOM shim 跑 app.js：8 个标签页/工作区切换/主页服务器状态/状态灯红绿 CSS/武器练度输入框/角色弹窗与星位区块/服务器管理页/待保存抽屉/帮助与主题切换/黑白设计不变量，无需浏览器与服务端）
-npm run test:setup              :: 向导的游戏目录探测：路径归一化 + 候选目录不许自我重复（无需启动服务端）
+npm run test:setup              :: 向导：游戏目录探测（路径归一化 + 候选目录不许自我重复）+ 首次运行的依赖安装调用方式（不许裸 spawn .cmd）+ --check 自查报告（无需启动服务端）
 npm run test:fixes              :: 累充/抽卡保底/页签隐藏专项
 npm run test:persistence        :: 重启持久化（自行拉起/杀掉服务端，需先停手动实例；用临时存档目录）
 ```

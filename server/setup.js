@@ -56,6 +56,7 @@ const flagValue = (name) => {
 const RESET = hasFlag('--reset') || hasFlag('-r');
 const ASSUME_YES = hasFlag('--yes') || hasFlag('-y');
 const FROM_BAT = hasFlag('--from-bat');
+const CHECK = hasFlag('--check') || hasFlag('--doctor');   // 只读环境自查，见 collectDoctorReport
 const CLI_GAME_PATH = flagValue('--game-path');
 
 // stdin/stdout 只在真的要提问时才接（被 require 进单测时不该抢 stdin）
@@ -106,28 +107,113 @@ function checkReferenceAssets() {
   return true;
 }
 
+// ------------------------------------------------------------ 依赖自动安装
+//
+// 「怎么调 npm」比看起来麻烦：Windows 上 `npm` 只是一个 npm.cmd 垫片，而 Node 从
+// 18.20.2 / 20.12.2 / 21.7.3 起（CVE-2024-27980 的修复）**禁止 child_process 直接执行
+// .bat/.cmd** —— `spawnSync('npm.cmd', ['install'])` 不会启动任何进程，只回一个 EINVAL，
+// 而且 stdio: 'inherit' 下连一行输出都没有，看起来就像"什么都没发生"。
+//
+// 这在开发机上是隐形的（node_modules 早就在了，ensureDependencies 第一行就短路返回），
+// 但**每一个全新下载仓库的玩家**都会撞上它：`node_modules/` 是 gitignore 的，
+// 首次启动必然走这条安装路径 → 一进游戏就「依赖安装失败」（见 REVERSE_ENGINEERING 坑 47）。
+//
+// 所以：优先用**当前这个 node** 去跑它自带的 npm-cli.js（不过 PATH、不过 cmd.exe、不受
+// 上面那条限制）；只有找不到 CLI 脚本时才退回 shell（Windows 交给 cmd.exe 自己从 PATH
+// 上找 npm）。两条路径都不直接 spawn .cmd。
+
+function npmCliScript() {
+  const exeDir = path.dirname(process.execPath);
+  const candidates = [
+    // Windows / nvm-windows / 绿色压缩包：node.exe 旁边就是 npm
+    path.join(exeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    // Linux / macOS 的前缀布局
+    path.join(exeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  return candidates.find((p) => {
+    try { return fs.existsSync(p); } catch (_) { return false; }
+  }) || null;
+}
+
+// Windows 一律走 cmd.exe（**不要**把 npm.cmd 直接塞进 spawn，见上面那段说明）。
+function npmShellInvocation(npmArgs) {
+  if (os.platform() === 'win32') {
+    const comspec = process.env.ComSpec || 'cmd.exe';
+    return {
+      command: comspec,
+      args: ['/d', '/s', '/c', ['npm', ...npmArgs].join(' ')],
+      label: `cmd /c npm ${npmArgs.join(' ')}`,
+    };
+  }
+  return { command: 'npm', args: npmArgs, label: `npm ${npmArgs.join(' ')}` };
+}
+
+function npmInvocation(npmArgs) {
+  const cli = npmCliScript();
+  if (cli) {
+    return {
+      command: process.execPath,
+      args: [cli, ...npmArgs],
+      label: `node "${cli}" ${npmArgs.join(' ')}`,
+    };
+  }
+  return npmShellInvocation(npmArgs);
+}
+
+function tailLines(text, n) {
+  return String(text).trimEnd().split(/\r?\n/).slice(-n);
+}
+
+// 安装失败时给的「怎么办」。玩家最常问的是「npm install 在哪？」——
+// 它是一条**命令**，不是文件，也不是 Node 安装目录里的东西，所以这里把话说死。
+function manualInstallHelp() {
+  console.log('    手动装一次就好（只有首次麻烦，之后不会再出现这一步）：');
+  console.log(`      1. 打开文件夹：${SERVER_DIR}`);
+  console.log('      2. 在资源管理器地址栏里输入 cmd 再回车（或 Shift+右键 → 在此处打开终端）');
+  console.log('      3. 执行：npm install');
+  console.log('      4. 装好后重新双击「点我启动.bat」');
+  console.log('    注意：npm install 是要在上面那个 server 目录里敲的一条命令，');
+  console.log('          不是文件、也不是安装包——不要去 Node 的安装目录里找它（那里没有）。');
+  console.log("    若提示「'npm' 不是内部或外部命令」：装 Node.js 时没勾选 Add to PATH，");
+  console.log('      重装 LTS 版并勾选它（https://nodejs.org/）。');
+  console.log('    若只是下载慢 / 超时：换国内镜像重试');
+  console.log('      npm install --registry=https://registry.npmmirror.com');
+}
+
 function ensureDependencies() {
-  const missing = ['protobufjs', 'des.js']
-    .filter((pkg) => !fs.existsSync(path.join(SERVER_DIR, 'node_modules', pkg)));
-  if (!missing.length) {
+  const deps = ['protobufjs', 'des.js'];
+  const missingDeps = () => deps.filter((p) => !fs.existsSync(path.join(SERVER_DIR, 'node_modules', p)));
+
+  if (!missingDeps().length) {
     ok('依赖已就绪（protobufjs / des.js）');
     return true;
   }
-  console.log(`    首次运行：正在安装依赖 ${missing.join('、')} …`);
-  const npm = os.platform() === 'win32' ? 'npm.cmd' : 'npm';
-  const res = spawnSync(npm, ['install'], { cwd: SERVER_DIR, stdio: 'inherit' });
-  if (res.status !== 0) {
-    console.error('依赖安装失败，请在 server 目录手动执行 npm install 后重试。');
-    return false;
+
+  console.log(`    首次运行：正在安装依赖 ${missingDeps().join('、')} …`);
+  const inv = npmInvocation(['install']);
+  console.log(`    （${inv.label}）`);
+  // 输出**抓下来**再打：万一失败要能说清是哪一步坏的（旧实现用 stdio: 'inherit'，
+  // spawn 都没起来时控制台上一条线索都没有）。
+  const res = spawnSync(inv.command, inv.args, { cwd: SERVER_DIR, encoding: 'utf8' });
+  const output = `${res.stdout || ''}${res.stderr || ''}`.trim();
+  const left = missingDeps();
+
+  if (!res.error && res.status === 0 && !left.length) {
+    if (output) console.log(tailLines(output, 8).map((l) => `      ${l}`).join('\n'));
+    ok('依赖安装完成');
+    return true;
   }
-  const stillMissing = ['protobufjs', 'des.js']
-    .filter((pkg) => !fs.existsSync(path.join(SERVER_DIR, 'node_modules', pkg)));
-  if (stillMissing.length) {
-    console.error(`依赖仍然缺失：${stillMissing.join('、')}`);
-    return false;
+
+  console.error('    依赖安装失败。');
+  if (res.error) console.error(`    原因：${res.error.code} ${res.error.message}`);
+  else if (res.status !== 0) console.error(`    原因：npm 退出码 ${res.status}`);
+  else console.error(`    原因：npm 报告成功，但 ${left.join('、')} 仍然不在 node_modules 里`);
+  if (output) {
+    console.error('    npm 的最后几行输出：');
+    for (const l of tailLines(output, 12)) console.error(`      ${l}`);
   }
-  ok('依赖安装完成');
-  return true;
+  manualInstallHelp();
+  return false;
 }
 
 // ------------------------------------------------------------ 2. 定位游戏目录
@@ -328,7 +414,187 @@ function saveConfig(cfg) {
   fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
 }
 
+// --------------------------------------------------------- 环境自查（--check）
+//
+// `node setup.js --check`：**只读**排查，不改文件、不装依赖、不写客户端配置。
+// 回答三个最常被问到的问题：
+//   1. 我这份代码是修好的吗？（旧版的依赖自动安装 100% 失败，见坑 47）
+//   2. 我机器上的依赖到底装了没？下次启动会不会再走安装那一步？
+//   3. 游戏目录 / 客户端 channel.lua 还对不对？
+// 刻意做成零依赖、且不 spawn 任何外部命令 —— 依赖缺失时也必须能跑起来
+// （`preflight.js` 反过来，它 require protobufjs，依赖没装就直接崩，没法用来排查这种问题）。
+
+// 判据：新写法引入了 `npmCliScript()` 调用，且不再裸 spawn npm（旧版是
+// `spawnSync('npm.cmd', ...)`）。最小、最抗混淆的两个特征。
+//
+// **必须先把注释剥掉再匹配**：修复后的文件里恰好**引用**了旧写法（注释里拿它当反面教材、
+// 上面「依赖自动安装」那一段就写着 `spawnSync('npm.cmd', ['install'])`），
+// 不剥注释会把修好的文件自己判成旧版 —— 这个自检第一次跑就踩了这个坑。
+function sourceLooksFixed(src) {
+  const code = String(src)
+    .replace(/\/\*[\s\S]*?\*\//g, '')          // 块注释
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');     // 行注释（前面不是 ':' 才算，别误伤 http://）
+  return /npmCliScript\s*\(/.test(code) && !/spawnSync\s*\(\s*['"`]npm/i.test(code);
+}
+
+function countFiles(dir) {
+  try { return fs.readdirSync(dir).length; } catch (_) { return -1; }
+}
+
+function collectDoctorReport() {
+  const gamedata = countFiles(path.join(REPO_ROOT, 'reference', 'gamedata'));
+  const proto = countFiles(path.join(REPO_ROOT, 'reference', 'proto'));
+
+  const deps = ['protobufjs', 'des.js'];
+  const present = deps.filter((pkg) => fs.existsSync(path.join(SERVER_DIR, 'node_modules', pkg)));
+  const missing = deps.filter((pkg) => !present.includes(pkg));
+
+  const inv = npmInvocation(['install']);
+  let src = '';
+  try { src = fs.readFileSync(__filename, 'utf8'); } catch (_) { /* unreadable: assume unknown */ }
+
+  const cfg = (() => { try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch (_) { return null; } })();
+  const dirSaved = savedDir();
+  const clientFiles = clientFileSpecs().map((spec) => {
+    const out = { name: spec.name, path: dirSaved ? path.join(dirSaved, spec.name) : null, state: 'unknown' };
+    if (!dirSaved) return out;
+    try {
+      if (!fs.existsSync(out.path)) out.state = 'missing';
+      else out.state = fs.readFileSync(out.path, 'utf8') === spec.body ? 'current' : 'stale';
+    } catch (_) { out.state = 'unreadable'; }
+    return out;
+  });
+
+  const node = {
+    version: process.versions.node,
+    exe: process.execPath,
+    ok: Number(process.versions.node.split('.')[0]) >= 18,
+  };
+  const assetsOk = gamedata > 0 && proto > 0;
+  const fixed = sourceLooksFixed(src);
+
+  return {
+    node,
+    npm: {
+      mode: inv.command === process.execPath ? 'cli' : 'shell',
+      cli: npmCliScript(),
+      command: inv.command,
+      args: inv.args,
+      label: inv.label,
+    },
+    assets: { gamedata, proto, ok: assetsOk },
+    deps: { present, missing, ready: missing.length === 0 },
+    wizard: {
+      configPath: CONFIG_FILE,
+      configured: !!cfg,
+      gamePath: cfg ? cfg.game_path : null,
+      gamePathValid: !!(cfg && isGameRoot(cfg.game_path)),
+      savedDir: dirSaved,
+      clientFiles,
+    },
+    code: { fixed, path: __filename },
+    serverDir: SERVER_DIR,
+    // 能不能「双击就开玩」：Node 够新 + 资产在 + （代码已修 或 依赖本来就齐）
+    ready: node.ok && assetsOk && (fixed || missing.length === 0),
+  };
+}
+
+function printDoctor(rep) {
+  const tick = (good, text) => console.log(`   ${good ? 'OK ' : '~~ '} ${text}`);
+  line('=');
+  console.log(' 环境自查（--check，只读：不改文件、不装依赖、不写配置）');
+  line('=');
+  console.log('');
+
+  console.log(' [1] Node.js');
+  tick(rep.node.ok, rep.node.ok
+    ? `v${rep.node.version}`
+    : `v${rep.node.version} —— 太旧了，请到 https://nodejs.org/ 装 LTS 版（要求 >= 18）`);
+  console.log(`        ${rep.node.exe}`);
+
+  console.log('');
+  console.log(' [2] npm（装依赖时要用）');
+  if (rep.npm.mode === 'cli') {
+    tick(true, '用当前这个 node 跑它自带的 npm-cli.js（不经过 cmd.exe，不依赖 PATH）');
+    console.log(`        ${rep.npm.cli}`);
+  } else {
+    tick(true, '当前 node 旁边没有 npm-cli.js，会退回 cmd.exe 去 PATH 上找 npm');
+  }
+  console.log('        下次装依赖会执行：');
+  console.log(`          ${rep.npm.label}`);
+
+  console.log('');
+  console.log(' [3] 逆向资产（reference/）');
+  tick(rep.assets.ok, rep.assets.ok
+    ? `gamedata ${rep.assets.gamedata} 个文件 / proto ${rep.assets.proto} 个文件`
+    : `缺文件（gamedata ${rep.assets.gamedata} / proto ${rep.assets.proto}）—— 请确认下载的是完整仓库，reference/ 不能被删`);
+
+  console.log('');
+  console.log(' [4] 依赖（server/node_modules）');
+  if (rep.deps.ready) {
+    tick(true, `${rep.deps.present.join('、')} 都在 → 启动时会**跳过**安装步骤（不会联网、不会碰 npm）`);
+  } else {
+    tick(false, `缺 ${rep.deps.missing.join('、')} → 启动时会自动安装；装不上就手动来：`);
+    console.log(`          打开 ${rep.serverDir} → 地址栏输入 cmd 回车 → npm install`);
+  }
+
+  console.log('');
+  console.log(' [5] 向导状态');
+  if (rep.wizard.gamePathValid) {
+    tick(true, `游戏目录：${rep.wizard.gamePath}`);
+  } else if (rep.wizard.configured) {
+    tick(false, `server/runtime-config.json 里记的游戏目录已失效（${rep.wizard.gamePath}）→ 下次启动会重新问你`);
+  } else {
+    tick(false, '还没配置过（没有 server/runtime-config.json）→ 下次启动会探测/询问游戏目录');
+  }
+  if (!rep.wizard.savedDir) {
+    tick(false, '找不到 %LOCALAPPDATA%，无法写入客户端配置');
+  } else {
+    for (const f of rep.wizard.clientFiles) {
+      const state = {
+        current: '已是私服配置（无需改动）',
+        stale: '内容不对（指向别处）→ 启动时会被覆盖',
+        missing: '不存在 → 启动时会写入',
+        unreadable: '读不了（权限？）',
+        unknown: '无法判断',
+      }[f.state] || f.state;
+      tick(f.state === 'current', `${f.name}：${state}`);
+    }
+    console.log(`        ${rep.wizard.savedDir}`);
+  }
+
+  console.log('');
+  console.log(' [6] 这份代码是不是修好的版本');
+  if (rep.code.fixed) {
+    tick(true, 'setup.js 含依赖自动安装修复（坑 47）→ 首次启动的 npm install 会全自动完成');
+  } else {
+    console.log('   !!  这份 setup.js 还是**修复前**的写法（直接 spawn npm.cmd）：');
+    console.log('        缺依赖时首次启动必定报「依赖安装失败」（Node >= 18.20.2 会拒绝执行 .cmd）。');
+    console.log(`        救急：打开 ${rep.serverDir} → 地址栏输入 cmd → npm install；
+        长期：换成本仓库最新版。`);
+  }
+  console.log(`        检查的文件：${rep.code.path}`);
+
+  console.log('');
+  line('=');
+  if (rep.ready) {
+    console.log(' 结论：环境就绪 —— 直接双击「点我启动.bat」即可'
+      + (rep.deps.ready ? '。' : '（缺依赖会自动装）。'));
+  } else {
+    console.log(' 结论：还有问题，先按上面的 ~~ / !! 处理，再双击「点我启动.bat」。');
+  }
+  line('=');
+  return rep.ready;
+}
+
 async function main() {
+  // --check / --doctor：只读自查，跑完即走（不碰任何文件，也不启动服务端）
+  if (CHECK) {
+    const rep = collectDoctorReport();
+    const ready = printDoctor(rep);
+    return ready ? 0 : 1;
+  }
+
   // 启动器（点我启动.bat）是纯 ASCII，中文横幅由这里打印，见文件头注释
   line('=');
   console.log(' Nornium ServerDev - 失乐星图本地私服');
@@ -447,4 +713,17 @@ if (require.main === module) {
     });
 }
 
-module.exports = { canonicalPath, pathKey, resolveGameRoot, detectCandidates, isGameRoot };
+module.exports = {
+  canonicalPath,
+  pathKey,
+  resolveGameRoot,
+  detectCandidates,
+  isGameRoot,
+  // 依赖自动安装的调用方式（test/setup_check.js 断言「绝不直接 spawn .cmd」，坑 47）
+  npmCliScript,
+  npmInvocation,
+  npmShellInvocation,
+  // 环境自查（--check）：sourceLooksFixed 用来判断「这份 setup.js 是不是修好的」
+  sourceLooksFixed,
+  collectDoctorReport,
+};

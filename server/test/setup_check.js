@@ -26,10 +26,32 @@
 //      (setup.js / index.js), whose console output goes through the Win32
 //      wide-char API and is codepage-independent.
 //
+//   3. The wizard's "first run: auto npm install" step spawned `npm.cmd`
+//      directly. Node >= 18.20.2 / 20.12.2 / 21.7.3 (the CVE-2024-27980
+//      hardening) refuses to execute .bat/.cmd via child_process — spawnSync
+//      returns EINVAL without ever starting a process, and with
+//      `stdio: 'inherit'` the console stays empty, so all a fresh download saw
+//      was:
+//
+//          [1] 检查运行环境
+//              OK  Node.js 24.x
+//              首次运行：正在安装依赖 protobufjs、des.js …
+//              依赖安装失败，请在 server 目录手动执行 npm install 后重试。
+//
+//      Nobody notices this on a dev machine (node_modules is already there,
+//      so ensureDependencies returns early) — but node_modules/ is gitignored,
+//      so every fresh clone hits it. The wizard now runs node's own
+//      npm-cli.js with the current interpreter instead.
+//
 // No server needed: setup.js only runs its wizard under `require.main === module`.
 const fs = require('fs');
 const path = require('path');
-const { canonicalPath, pathKey, resolveGameRoot, detectCandidates } = require('../setup');
+const { spawnSync } = require('child_process');
+const {
+  canonicalPath, pathKey, resolveGameRoot, detectCandidates,
+  npmCliScript, npmInvocation, npmShellInvocation,
+  sourceLooksFixed, collectDoctorReport,
+} = require('../setup');
 
 let failures = 0;
 function check(cond, msg) {
@@ -132,6 +154,93 @@ const isWin = process.platform === 'win32';
   for (const c of candidates) {
     check(c === canonicalPath(c), `candidate is stored canonical: ${c}`);
   }
+}
+
+// ---------------- 首次运行自动 npm install：绝不直接 spawn .cmd（见文件头第 3 条） ----------------
+{
+  const inv = npmInvocation(['install']);
+  console.log(`  info: npmInvocation() -> ${inv.label}`);
+
+  check(!/\.(cmd|bat)$/i.test(inv.command),
+    `the wizard never spawns a .cmd/.bat directly (command: ${inv.command})`);
+
+  const cli = npmCliScript();
+  console.log(`  info: npmCliScript() -> ${cli || '(not found next to node)'}`);
+  if (inv.command === process.execPath) {
+    check(!!cli && inv.args[0] === cli, 'it runs the current node with node\'s own npm-cli.js');
+    check(fs.existsSync(inv.args[0]), `that npm-cli.js really exists (${inv.args[0]})`);
+    check(inv.args[1] === 'install', 'the npm subcommand is `install`');
+  } else {
+    check(/npm install/.test(inv.args.join(' ')),
+      `no npm-cli.js next to node → the shell fallback still runs npm install (${inv.args.join(' ')})`);
+  }
+
+  if (isWin) {
+    // 复现用户反馈：Node 出于 CVE-2024-27980 的加固，直接 spawn .cmd 只会得到 EINVAL
+    const raw = spawnSync('npm.cmd', ['-v'], { encoding: 'utf8' });
+    const rawCode = raw.error ? raw.error.code : `status ${raw.status}`;
+    check(raw.error && raw.error.code === 'EINVAL',
+      `a bare npm.cmd spawn is rejected by Node itself (got ${rawCode}) — this is the reported bug`);
+
+    const fallback = npmShellInvocation(['install']);
+    check(path.basename(fallback.command).toLowerCase() === 'cmd.exe',
+      `the Windows fallback goes through cmd.exe (${fallback.command}), which finds npm on PATH`);
+  }
+
+  // 我们自己的调用方式不该被 Node 的 EINVAL 校验拦下
+  // （沙箱里真进程可能被拦成 EBUSY，那不算失败；本地机器上应当拿到 status 0）
+  const probeArgs = inv.command === process.execPath
+    ? ['-e', 'process.exit(0)']
+    : (isWin ? ['/d', '/s', '/c', 'exit 0'] : ['--version']);
+  const probe = spawnSync(inv.command, probeArgs, { cwd: SERVER_DIR, encoding: 'utf8' });
+  const probeCode = probe.error ? probe.error.code : `status ${probe.status}`;
+  check(!probe.error || probe.error.code !== 'EINVAL',
+    `our invocation style is accepted by Node (${probeCode})`);
+}
+
+// ---------------- 环境自查（node setup.js --check） ----------------
+{
+  // 「这份 setup.js 是不是修好的」判据必须先剥注释再匹配 —— 修好的文件里恰好引用了
+  // 旧写法当反面教材，不剥离就会把新版自己判成旧版（实现完第一次跑就踩了这个）。
+  check(sourceLooksFixed(fs.readFileSync(path.join(SERVER_DIR, 'setup.js'), 'utf8')),
+    'this repo\'s setup.js is recognised as the fixed version');
+  check(sourceLooksFixed(`
+// 首次运行：正在安装依赖
+const npm = os.platform() === 'win32' ? 'npm.cmd' : 'npm';
+const res = spawnSync(npm, ['install'], { cwd: SERVER_DIR, stdio: 'inherit' });
+`) === false, 'the pre-fix shape (bare npm.cmd spawn) is recognised as NOT fixed');
+  check(sourceLooksFixed(`
+// 旧实现：spawnSync('npm.cmd', ['install']) 只会拿到 EINVAL，进程根本没起来
+function npmCliScript() {}
+const inv = npmInvocation(['install']);
+`) === true, 'quoting the old line inside a comment does not misjudge a fixed file');
+
+  const rep = collectDoctorReport();
+  const doctorCli = npmCliScript();
+  console.log(`  info: doctor -> npm=${rep.npm.mode} deps.present=${JSON.stringify(rep.deps.present)}`
+    + ` missing=${JSON.stringify(rep.deps.missing)} ready=${rep.ready}`);
+
+  check(rep.node.ok, `doctor: node is new enough (v${rep.node.version})`);
+  check(!/\.(cmd|bat)$/i.test(rep.npm.command),
+    `doctor: the npm command it prints is not a .cmd/.bat (${rep.npm.command})`);
+  check(rep.npm.mode === (doctorCli ? 'cli' : 'shell'),
+    `doctor: npm mode "${rep.npm.mode}" matches whether npm-cli.js was found`);
+  check(rep.assets.ok, `doctor: reference/ assets are complete (gamedata ${rep.assets.gamedata} / proto ${rep.assets.proto})`);
+  check(rep.deps.present.length + rep.deps.missing.length === 2,
+    'doctor: the dependency list covers both packages');
+  for (const pkg of rep.deps.present) {
+    check(fs.existsSync(path.join(SERVER_DIR, 'node_modules', pkg)),
+      `doctor: says ${pkg} is installed, and it is`);
+  }
+  for (const pkg of rep.deps.missing) {
+    check(!fs.existsSync(path.join(SERVER_DIR, 'node_modules', pkg)),
+      `doctor: says ${pkg} is missing, and it is`);
+  }
+  check(rep.wizard.clientFiles.length === 2, 'doctor: checks both client lua files');
+  check(rep.serverDir === SERVER_DIR,
+    'doctor: tells the user to open the very server dir the wizard installs into');
+  check(rep.ready === (rep.node.ok && rep.assets.ok && (rep.code.fixed || rep.deps.ready)),
+    'doctor: the verdict follows its own rule (node + assets + (fixed || deps ready))');
 }
 
 console.log(failures === 0 ? '\nSETUP CHECKS PASSED' : `\n${failures} SETUP CHECKS FAILED`);

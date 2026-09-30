@@ -3,6 +3,60 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 与
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式。
 
+## [Unreleased]
+
+### Added
+
+- **`node setup.js --check`（别名 `--doctor`）：只读环境自查**。回答玩家/作者最常问的三件事：
+  ① 我这份代码是修好的吗（旧版的依赖自动安装 100% 失败，坑 47）；
+  ② 我机器上的依赖到底装了没、下次启动会不会再走安装那一步；
+  ③ 游戏目录与客户端 `channel.lua` / `version.lua` 还对不对。**不改文件、不装依赖、不写配置、
+  不 spawn 任何外部命令**，所以依赖缺失时也能跑起来（`preflight.js` 反过来——它 require
+  protobufjs，依赖没装就直接崩，正是不该用它排查这类问题的原因）。
+  输出六段：Node / npm（含"下次装依赖会执行哪条命令"）/ 逆向资产 / 依赖状态 /
+  向导状态（游戏目录是否仍有效、两个 lua 是"已是私服配置/内容不对/不存在"）/ 代码版本判定，
+  最后给一句结论；就绪返回 0，有问题返回 1（可脚本化）。
+- 版本判定 `sourceLooksFixed()`：匹配 `npmCliScript(` 且不再出现裸 `spawnSync('npm'…)`。
+  **必须先剥掉注释再匹配**——修复后的文件里恰好引用了旧写法当反面教材（本文件自己的注释里
+  就写着 `spawnSync('npm.cmd', ['install'])`），不剥离会把修好的文件判成旧版（自检第一次跑
+  就踩了这个坑，已写进注释与断言）。
+
+### Fixed
+
+- **全新下载后「首次运行正在安装依赖 → 依赖安装失败」——向导根本没把 npm 起起来（坑 47）**。
+  玩家反馈：双击「点我启动.bat」后停在
+  `首次运行：正在安装依赖 protobufjs、des.js …` → `依赖安装失败，请在 server 目录手动执行
+  npm install 后重试。`，且**中间一行 npm 输出都没有**。
+  - 根因：`ensureDependencies()` 用 `spawnSync('npm.cmd', ['install'], {stdio:'inherit'})`。
+    Node 从 18.20.2 / 20.12.2 / 21.7.3 起（CVE-2024-27980 的加固）**禁止 child_process
+    直接执行 .bat/.cmd**：`spawnSync` 连进程都不会创建，只回 `EINVAL`，于是
+    `res.status !== 0` 命中「安装失败」分支——控制台上因此一个字都没有。实测（本机
+    Node 22.22.2 与 24.15.0 均复现）：`spawnSync('npm.cmd', ['-v'])` → `error.code === 'EINVAL'`。
+  - 为什么开发时没发现：本仓库 `node_modules/` 是 gitignore 的，开发机早就装好了，
+    `ensureDependencies()` 第一行就短路返回。**只有全新下载仓库的玩家会走这条路**，
+    所以这是"每个新玩家必踩"的首次启动失败。
+  - 复现要点（2026-09-30 实测，容易误判成"这 bug 不存在"）：**发行压缩包自带
+    `node_modules`**（`Nornium-ServerDev-v0.2.0` 里就有，4.1 MB），第 1 步直接打印
+    「OK 依赖已就绪」，压根不走安装分支 → 解压即玩的人不可复现。
+    会中招的是**从源码拿包的人**（`git clone` / GitHub `Download ZIP` 都不含 node_modules）
+    以及手动删过依赖、被安全软件吞掉的人。**想复现：把 `server\node_modules` 改名再启动**，
+    旧版会逐字打印玩家那一屏（`首次运行：正在安装依赖 …` → `依赖安装失败，请…npm install 后重试。`，
+    中间一条 npm 输出都没有）。
+  - 修法：新增 `npmCliScript()` / `npmInvocation()` / `npmShellInvocation()`，
+    优先用**当前这个 node** 执行它自带的 `node_modules/npm/bin/npm-cli.js`
+    （不过 PATH、不过 cmd.exe，正是 `npm.cmd` 垫片内部做的事，见 `D:\nodejs\npm.cmd` 最后一行）；
+    找不到 CLI 脚本时才退回 `ComSpec /d /s /c "npm install"`，让 cmd.exe 自己从 PATH 找 npm。
+    两条路径都不直接 spawn `.cmd`。
+  - 同时补上**诊断信息**：改为捕获 npm 的 stdout/stderr，失败时打印 `res.error` 的
+    code/message（或退出码）与 npm 最后 12 行输出；失败提示改成可照做的四步
+    （打开 server 文件夹 → 地址栏输入 cmd → `npm install` → 重跑启动器），并顺带回答玩家
+    最容易问错的「npm install 在哪」——它是命令不是文件，不在 Node 安装目录里；
+    另附 `'npm' 不是内部或外部命令`（安装时没勾 Add to PATH）与超时换
+    `registry.npmmirror.com` 两条建议。
+  - 断言：`test/setup_check.js` 新增一段——在生产 Node 上直接 spawn `npm.cmd` 必须拿到
+    `EINVAL`（把用户报的现象钉住）、向导的调用方式不得以 `.cmd/.bat` 结尾、
+    `npm-cli.js` 必须真实存在且子命令是 `install`、Windows 兜底必须经 `cmd.exe`。
+
 ## [0.2.0] - 2026-09-27
 
 ### Added
