@@ -24,6 +24,7 @@ server/auto-launch.flag
 Thumbs.db
 desktop.ini
 .workbuddy/
+.zcode/
 
 # repak 导出的 pak 条目清单（tools/check_weapon_assets.js 的输入，随时可重新生成）
 reference/paklist*.txt
