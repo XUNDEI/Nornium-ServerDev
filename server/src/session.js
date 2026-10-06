@@ -7,6 +7,7 @@
 // Plain (never encrypted) cmds: req_ping, res_ping, ntf_server_time, ntf_msg_key.
 const net = require('net');
 const log = require('./logger');
+const activity = require('./activity');
 const crypt = require('./crypt');
 const protos = require('./protos');
 
@@ -38,7 +39,10 @@ class Session {
     this.sessionKey = crypt.generateSessionKey();
     const msgKey = crypt.encrypt(crypt.INITIAL_KEY, this.sessionKey);
     this.sendRaw('ntf_msg_key', { msg_key: msgKey });
-    log.info(`[conn] accepted ${this.socket.remoteAddress}, session key sent`);
+    // 连接生命周期只进 verbose + 汇总：一次游戏会话会握手/断开很多次，
+    // 「谁登录了」由 login.js 的 [login] account "x" ok 负责。
+    activity.noteConn(true);
+    log.verbose(`[conn] accepted ${this.socket.remoteAddress}, session key sent`);
 
     this.socket.on('data', (chunk) => this.onData(chunk));
     this.socket.on('error', (err) => log.warn('[conn] socket error:', err.message));
@@ -48,7 +52,8 @@ class Session {
   onClose() {
     this.closed = true;
     if (this.onCloseHook) this.onCloseHook();
-    log.info('[conn] closed');
+    activity.noteConn(false);
+    log.verbose('[conn] closed');
   }
 
   close() {

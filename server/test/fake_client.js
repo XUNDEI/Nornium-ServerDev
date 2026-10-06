@@ -792,7 +792,10 @@ async function main() {
   check(storyCost[1] === 0 && charged.every((v) => v === 0),
     `a free-substitution map charges nothing (delta [${charged.join(',')}])`);
 
-  // 付费地图相反：必须真的按表收费，收不动时回 4（而不是默默放行/多收）
+  // 付费地图：服务端必须真的按表收费。私服的资源自动补发（默认开）会把保底线以内的
+  // 消耗立刻补回来，所以官方经济只买得起 affordable 次的钱包，这里能换 affordable+1 次；
+  // 每次换角色仍能看到 -cost 的扣费增量，随后紧跟 +cost 的补发增量（净 0）。
+  // 官方行为（扣不动回 RES_NOT_ENOUGH(4)）由 test/universe_check.js 在关闭开关下覆盖。
   c2.send('req_new_universe', { difficulty_value: 1, main_planet_id: 110, map_type: 1, character_ids: team });
   const paidUi = (await c2.wait('res_new_universe')).msg.universe_info;
   tr2.ingest('res_new_universe', { universe_info: paidUi }); // 新一局：快照重建已知集合
@@ -800,16 +803,28 @@ async function main() {
   const paidCost = gd.query('d_srpg_map_base', paidMap).substitutionCost;
   const purse = num(paidUi.res_value[paidCost[0] - 1]);
   const affordable = Math.floor(purse / paidCost[1]);
+  const costIdx = paidCost[0] - 1;
+  const purseDeltas = [];
+  const offPaid = c2.onAny((name, _r, msg) => {
+    if (name === 'ntf_universe_info') purseDeltas.push((msg.res_value || []).map(num));
+  });
   let swaps = 0;
+  let lastResult = 0;
   for (let i = 0; i <= affordable; i++) {
     c2.send('req_universe_change_character', { character_id: 11202, character_index: i % 3 });
     const r = await c2.wait('res_universe_change_character');
+    lastResult = r.result;
     if (r.result === 0) { swaps += 1; continue; }
-    check(r.result === 4, `an exhausted purse answers RES_NOT_ENOUGH(4) on map ${paidMap}`);
     break;
   }
-  check(swaps === affordable,
-    `map ${paidMap}: ${purse} points buy exactly ${affordable} swaps (got ${swaps})`);
+  offPaid();
+  await sleep(80);
+  check(swaps === affordable + 1,
+    `map ${paidMap}: auto-grant tops the purse back up, all ${affordable + 1} swaps succeed (official economy: ${affordable})`);
+  const net = purseDeltas.reduce((s, d) => s + (d[costIdx] || 0), 0);
+  check(purseDeltas.some((d) => d[costIdx] === -paidCost[1]) && purseDeltas.some((d) => d[costIdx] > 0) && net === 0,
+    `each swap still charges the table price (-${paidCost[1]}) and the top-up is pushed right back (net ${net})`);
+  check(lastResult === 0, `the final swap answers OK, not RES_NOT_ENOUGH(4) (got ${lastResult})`);
 
   // old session should have been kicked (single login)
   await sleep(300);

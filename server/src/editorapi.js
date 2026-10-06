@@ -24,8 +24,10 @@ const mallGame = require('./game/mall');
 const weaponData = require('./game/weapon_data');
 const { liveSessionCount, kickAllSessions } = require('./session');
 const { onlineAccounts } = require('./handlers/login');
+const { setGrantConfig, grantCfg } = require('./handlers/universe');
 const consoleCmds = require('./console');
-const { version } = require('../package.json');
+const mods = require('./mods');
+const { version, homepage } = require('../package.json');
 
 const editorDir = path.join(__dirname, '..', 'editor');
 const MIME = {
@@ -74,10 +76,40 @@ function levelingTables() {
   };
 }
 
+// 技能最高等级：d_skill_fight_level 里同一个 skillId 的最大 skillLevel（客户端
+// UIUtils.GetSkillMaxLv 的口径）。被动技能（belong=2）往往一行都没有，取到 0 表示
+// 「表里没写」，前端不夹取上限（只夹 >= 1）。
+function skillMaxLevels() {
+  const max = new Map();
+  for (const [, r] of gd.rows('d_skill_fight_level')) {
+    const id = Number(r.skillId) || 0;
+    const lv = Number(r.skillLevel) || 0;
+    if (lv > (max.get(id) || 0)) max.set(id, lv);
+  }
+  return max;
+}
+
+// 机甲方块（装备）：d_bag_item_equip，subType 1..6 = 六个部位（与
+// handlers/character.js 的换装槽位判定同一字段）。名字没有单独的槽位表，前端按
+// 「槽位 N」分组展示。
+function equipSlotList() {
+  const out = [];
+  for (const [, r] of gd.rows('d_bag_item_equip')) {
+    out.push({
+      id: r.id, name: word(r.itemName) || `#${r.id}`,
+      slot: Number(r.subType) || 0, rarity: r.rarity ?? 0,
+    });
+  }
+  return out;
+}
+
 let catalogCache = null;
 function catalog() {
   if (catalogCache) return catalogCache;
-  const cat = { items: [], weapons: [], furniture: [], characters: [], leveling: levelingTables() };
+  const cat = {
+    items: [], weapons: [], furniture: [], characters: [], equips: equipSlotList(),
+    leveling: levelingTables(),
+  };
   for (const [, r] of gd.rows('d_bag_item')) {
     cat.items.push({
       id: r.id, name: word(r.itemName) || `#${r.id}`,
@@ -97,9 +129,49 @@ function catalog() {
   for (const [, r] of gd.rows('d_bag_item_furniture')) {
     cat.furniture.push({ id: r.id, name: word(r.itemName) || `#${r.id}`, rarity: r.rarity ?? 0 });
   }
+  const skillMax = skillMaxLevels();
   for (const [, r] of gd.rows('d_character')) {
     if (!playerNew.isPlayableCharacter(r.id)) continue;
     const talentIds = talent.allTalentIds(r.id);
+    // 星位明细（逐孔勾选用）：孔位 / 名字 / 解锁条件（等级 or 消耗品）/ 前置孔位。
+    const talentList = talent.rowsFor(r.id).map((row) => {
+      const need = Number(row.openNeed) || 0;
+      const price = (Array.isArray(row.openNeedPrice) ? row.openNeedPrice : Object.values(row.openNeedPrice || {}))
+        .map(Number);
+      let need_kind = '';
+      let need_value = 0;
+      if (need === talent.OPEN_NEED_CHAR_LEVEL) { need_kind = 'level'; need_value = price[1] || 1; }
+      else if (need === talent.OPEN_NEED_COST_ITEM) { need_kind = 'item'; need_value = price[1] || 1; }
+      return {
+        id: Number(row.id), hole: Number(row.hole) || 0,
+        name: word(row.inbornName) || `#${row.id}`,
+        need_kind, need_value,
+        cost_item: need === talent.OPEN_NEED_COST_ITEM ? (price[0] || 0) : 0,
+      };
+    });
+    // 技能明细（改等级用）：1 = 主动 / 2 = 被动，max_level 来自 d_skill_fight_level。
+    const skillList = [];
+    for (const [, s] of gd.rows('d_skill')) {
+      if (Number(s.belongCharId) !== Number(r.id)) continue;
+      const belong = Number(s.belong) || 0;
+      if (belong !== 1 && belong !== 2) continue;
+      skillList.push({
+        id: Number(s.id), name: word(s.skillName) || `#${s.id}`,
+        belong, max_level: skillMax.get(Number(s.id)) || 0,
+      });
+    }
+    skillList.sort((a, b) => a.belong - b.belong || a.id - b.id);
+    // 皮肤明细：按 dressType 1/2/3 分组（4 类酒店立绘跟随主城，前端不单独列）。
+    const skinGroups = { 1: [], 2: [], 3: [] };
+    for (const [, cl] of gd.rows('d_char_clothes')) {
+      if (Number(cl.charBelong) !== Number(r.id)) continue;
+      const t = Number(cl.dressType) || 0;
+      if (!skinGroups[t]) continue;
+      skinGroups[t].push({
+        id: Number(cl.id), name: word(cl.dressName) || `#${cl.id}`,
+        default: Number(cl.dressInitial) === 1,
+      });
+    }
     cat.characters.push({
       id: r.id, name: word(r.name) || `#${r.id}`,
       profession: r.profession, first_weapon: r.firstWeapon,
@@ -110,9 +182,16 @@ function catalog() {
       // 该角色的皮肤总数（战斗/机甲/主城三类；酒店立绘与主城共享解锁，不重复计）。
       // 前端「解锁该角色全部皮肤」按钮与解锁进度用它。
       skin_total: skins.skinTotalForCharacter(r.id),
-      // 与该角色武器类型匹配、且已实装的最高稀有度武器（arsenal 的口径），
-      // 前端「发放该武器」单发按钮直接用；批量发放走 grant_high_rarity_weapons。
-      best_weapon: arsenal.bestWeaponForCharacter(r.id),
+      // 该角色的官方专属武器（映射与证据见 game/weapon_data.js 的 CHARACTER_EXCLUSIVE_WEAPONS）：
+      // exclusive_weapon 是 7★ 最终形态（「发放专武」按钮直接用它），
+      // exclusive_weapon_base 是 6★ 基础形态（弹窗里一并展示）。批量发放走
+      // grant_exclusive_weapons（仅十把专武）或 grant_high_rarity_weapons（全部 36 把）。
+      exclusive_weapon: arsenal.exclusiveWeaponForCharacter(r.id),
+      exclusive_weapon_base: arsenal.exclusiveWeaponBaseForCharacter(r.id),
+      // 角色页弹窗的精细化编辑用：逐孔星位 / 逐件皮肤 / 逐个技能。
+      talents: talentList,
+      skins: skinGroups,
+      skills: skillList,
     });
   }
   catalogCache = cat;
@@ -237,6 +316,13 @@ function ensureGachaState(doc, typeId) {
   return doc.gacha.type_infos[typeId];
 }
 
+// 角色对象进了 ctx.chars 就会推一次 ntf_character_info（整份替换）；同一个角色
+// 在一次保存里被多个操作改到时只推一次。
+function touchChar(ctx, char) {
+  if (!ctx.chars.includes(char)) ctx.chars.push(char);
+  return char;
+}
+
 // 每个操作都往 ctx 里累积推送载荷：itemDelta（changed_item_infos）、
 // chars（整个角色对象）、mallChanged（需要重推 ntf_mall_info）。
 function applyOp(doc, op, ctx) {
@@ -260,6 +346,24 @@ function applyOp(doc, op, ctx) {
         if (count === 0) doc.bag.items.splice(doc.bag.items.indexOf(entry), 1);
       }
       return `货币 ${itemId} → ${count}`;
+    }
+    case 'set_universe_res': {
+      // 宇宙（远航）资源：res_value 只存在于进行中的局里，不进背包，所以 set_currency
+      // 够不着它。res_type 是 1..4（客户端顶栏从左到右那 4 格），切角色扣的是资源 2。
+      const resType = asInt(op.res_type);
+      const count = asInt(op.count);
+      if (!(resType >= 1 && resType <= 4)) throw new OpError('res_type 必须是 1..4');
+      if (count === null || count < 0) throw new OpError('count 必须是非负整数');
+      if (!doc.universe || !doc.universe.active) {
+        throw new OpError('该存档没有进行中的远航——宇宙资源只存在于局内，先在游戏里开一局');
+      }
+      const old = Number(doc.universe.res_value[resType] || 0);
+      doc.universe.res_value[resType] = count;
+      // ntf_universe_info 的 res_value 是 4 元「增量」数组（客户端本地累加），
+      // 同一资源被多个 op 改到时合并成一条净增量。
+      ctx.universeResDelta = ctx.universeResDelta || [0, 0, 0, 0];
+      ctx.universeResDelta[resType - 1] += count - old;
+      return `宇宙资源${resType} ${old} → ${count}`;
     }
     case 'add_item': {
       const itemId = asInt(op.item_id);
@@ -445,8 +549,16 @@ function applyOp(doc, op, ctx) {
       }
       return added.length ? `新增角色 ${added.length} 个` : '全部角色已拥有';
     }
-    // 高稀有度武器每种各发一把（已实装的 6★/7★）。旧名 grant_best_weapons 保留为别名，
-    // 但行为已按新口径 —— 不再猜「谁的专武」，见 game/arsenal.js。
+    // 每名可玩角色的 7★ 专武各发一把（映射见 game/weapon_data.js 的
+    // CHARACTER_EXCLUSIVE_WEAPONS）。「发放全部专武」按钮走这里。
+    case 'grant_exclusive_weapons': {
+      const { granted, deltas } = arsenal.grantExclusiveWeapons(doc, { skipOwned: op.skip_owned === true });
+      for (const p of deltas) for (const e of p.changed_item_infos) delta(e);
+      return granted.length
+        ? `发放专武 ${granted.length} 把（每人一把 7★，入包不自动装备）`
+        : '没有需要发放的专武';
+    }
+    // 高稀有度武器每种各发一把（已实装的 6★/7★）。旧名 grant_best_weapons 保留为别名。
     case 'grant_high_rarity_weapons':
     case 'grant_best_weapons': {
       const { granted, deltas } = arsenal.grantHighRarityWeapons(doc, { skipOwned: op.skip_owned === true });
@@ -572,6 +684,163 @@ function applyOp(doc, op, ctx) {
         ? `角色 ${charId} 新解锁皮肤 ${added} 个`
         : `全部角色新解锁皮肤 ${added} 个（涉及 ${chars.length} 名角色）`;
     }
+    // 逐孔点亮星位（整份替换 talent_ids）。跳过前置与消耗，与 unlock_all_talents 同一口径，
+    // 但允许前端按孔位精细勾选。
+    case 'set_talents': {
+      const char = findChar(doc, op.character_id);
+      if (!Array.isArray(op.talent_ids)) throw new OpError('set_talents 需要 talent_ids 数组');
+      const want = [];
+      for (const raw of op.talent_ids) {
+        const tid = asInt(raw);
+        if (!tid || want.includes(tid)) continue;
+        if (!talent.config(tid, char.character_id)) {
+          throw new OpError(`星位 ${tid} 不属于角色 ${char.character_id}`);
+        }
+        want.push(tid);
+      }
+      // 按孔位排序（客户端与存档都假定 talent_ids 有序）。
+      const order = new Map(talent.rowsFor(char.character_id).map((r) => [Number(r.id), Number(r.hole) || 0]));
+      want.sort((a, b) => (order.get(a) || 0) - (order.get(b) || 0));
+      const total = talent.allTalentIds(char.character_id).length;
+      const before = (char.talent_ids || []).map(Number);
+      char.talent_ids = want;
+      touchChar(ctx, char);
+      const added = want.filter((id) => !before.includes(id)).length;
+      const removed = before.filter((id) => !want.includes(id)).length;
+      return `角色 ${char.character_id} 星位 ${want.length}/${total} 点亮（+${added}/-${removed}）`;
+    }
+    // 按类别整份设置已解锁皮肤。默认皮肤必须始终在列表里：客户端把「默认自动解锁」
+    // 的分支注释掉了，少了它连初始服装都会显示成锁定（见 game/skins.js 头部）。
+    case 'set_skins': {
+      const char = findChar(doc, op.character_id);
+      const dressType = asInt(op.dress_type);
+      const slot = skins.DRESS_TYPES[dressType];
+      if (!slot) throw new OpError('set_skins 需要 dress_type 1/2/3（战斗/机甲/主城）');
+      if (!Array.isArray(op.skin_ids)) throw new OpError('set_skins 需要 skin_ids 数组');
+      const want = [];
+      for (const raw of op.skin_ids) {
+        const sid = asInt(raw);
+        if (!sid || want.includes(sid)) continue;
+        const row = skins.clothesRow(sid);
+        if (!row || Number(row.charBelong) !== Number(char.character_id) || Number(row.dressType) !== dressType) {
+          throw new OpError(`皮肤 ${sid} 不属于角色 ${char.character_id} 的第 ${dressType} 类`);
+        }
+        want.push(sid);
+      }
+      const def = skins.defaultSkinIds(char.character_id)[dressType] || 0;
+      if (def && !want.includes(def)) want.push(def);
+      want.sort((a, b) => a - b);
+      const before = (char[slot.own] || []).map(Number);
+      const added = want.filter((id) => !before.includes(id)).length;
+      const removed = before.filter((id) => !want.includes(id)).length;
+      char[slot.own] = want;
+      // 被移出的皮肤如果正穿在身上，穿戴字段回落到默认。
+      if (!want.includes(Number(char[slot.worn]) || 0)) char[slot.worn] = def || 0;
+      touchChar(ctx, char);
+      return `角色 ${char.character_id} 第 ${dressType} 类皮肤：${want.length} 件（+${added}/-${removed}）`;
+    }
+    // 设置穿戴中的皮肤（0 = 恢复默认，客户端对 0 自己回退）。穿戴未解锁的皮肤会自动解锁。
+    case 'set_worn_skin': {
+      const char = findChar(doc, op.character_id);
+      const dressType = asInt(op.dress_type);
+      const slot = skins.DRESS_TYPES[dressType];
+      if (!slot) throw new OpError('set_worn_skin 需要 dress_type 1/2/3（战斗/机甲/主城）');
+      const skinId = asInt(op.skin_id ?? 0) || 0;
+      if (skinId) {
+        const row = skins.clothesRow(skinId);
+        if (!row || Number(row.charBelong) !== Number(char.character_id) || Number(row.dressType) !== dressType) {
+          throw new OpError(`皮肤 ${skinId} 不属于角色 ${char.character_id} 的第 ${dressType} 类`);
+        }
+        if (!Array.isArray(char[slot.own])) char[slot.own] = [];
+        if (!char[slot.own].some((id) => Number(id) === skinId)) char[slot.own].push(skinId);
+      }
+      char[slot.worn] = skinId;
+      touchChar(ctx, char);
+      return skinId
+        ? `角色 ${char.character_id} 穿戴皮肤 ${skinId}`
+        : `角色 ${char.character_id} 恢复默认皮肤（第 ${dressType} 类）`;
+    }
+    // 技能等级（合并语义：只更新列出的技能，不删除未列出的，避免把客户端技能列表改空）。
+    case 'set_character_skills': {
+      const char = findChar(doc, op.character_id);
+      if (!Array.isArray(op.skills)) throw new OpError('set_character_skills 需要 skills 数组');
+      if (!Array.isArray(char.skill_infos)) char.skill_infos = [];
+      const maxOf = skillMaxLevels();
+      const notes = [];
+      for (const entry of op.skills) {
+        const sid = asInt(entry && entry.skill_id);
+        let level = asInt(entry && entry.skill_level);
+        if (!sid || level === null) throw new OpError('set_character_skills 的每一项都需要 skill_id 与 skill_level');
+        const cfg = gd.query('d_skill', sid);
+        const belong = cfg ? Number(cfg.belong) || 0 : 0;
+        if (!cfg || Number(cfg.belongCharId) !== Number(char.character_id) || (belong !== 1 && belong !== 2)) {
+          throw new OpError(`技能 ${sid} 不属于角色 ${char.character_id}`);
+        }
+        const max = maxOf.get(sid) || 0;
+        if (level < 1) level = 1;
+        if (max > 0 && level > max) {
+          notes.push(`${sid} 夹到上限 ${max}`);
+          level = max;
+        }
+        const cur = char.skill_infos.find((s) => Number(s.skill_id) === sid);
+        if (cur) cur.skill_level = level;
+        else char.skill_infos.push({ skill_id: sid, skill_level: level });
+      }
+      touchChar(ctx, char);
+      return `角色 ${char.character_id} 技能等级已更新（${op.skills.length} 项${notes.length ? `；${notes.join('，')}` : ''}）`;
+    }
+    // 装备机甲（镜像 handlers/character.js reqCharacterEquipArm：同槽位旧件回背包）。
+    case 'equip_arm': {
+      const char = findChar(doc, op.character_id);
+      const uuid = asInt(op.item_uuid);
+      if (!uuid) throw new OpError('equip_arm 需要 item_uuid');
+      const entry = (doc.bag.items || []).find((it) => Number(it.item_uuid) === uuid);
+      if (!entry) throw new OpError(`背包里没有 uuid=${uuid} 的机甲`);
+      if (items.itemKind(entry.item_id) !== 'arm') {
+        throw new OpError(`uuid=${uuid} 不是机甲（item_id=${entry.item_id}）`);
+      }
+      const slot = Number((gd.query('d_bag_item_equip', entry.item_id) || {}).subType) || 0;
+      if (!Array.isArray(char.arm_infos)) char.arm_infos = [];
+      const replaced = [];
+      for (let i = 0; i < char.arm_infos.length; i += 1) {
+        const cur = char.arm_infos[i];
+        const curSlot = Number((gd.query('d_bag_item_equip', cur.item_id) || {}).subType) || 0;
+        if (curSlot === slot) {
+          replaced.push(char.arm_infos.splice(i, 1)[0]);
+          break;
+        }
+      }
+      doc.bag.items.splice(doc.bag.items.indexOf(entry), 1);
+      // 换下来的旧件回背包（与 handlers/character.js reqCharacterEquipArm 同一口径）。
+      for (const old of replaced) doc.bag.items.push(old);
+      char.arm_infos.push(entry);
+      // 推送口径见 handleUpdate 的注释：离包不带 item_extra（客户端按 count 归零删条目），
+      // 回包带 arm_info（让客户端把机甲属性一并带上）。
+      delta({ item_id: entry.item_id, count: -1, item_uuid: String(entry.item_uuid) });
+      for (const old of replaced) {
+        const payload = { item_id: old.item_id, count: 1, item_uuid: String(old.item_uuid) };
+        if (old.arm_info) payload.arm_info = old.arm_info;
+        delta(payload);
+      }
+      touchChar(ctx, char);
+      return `角色 ${char.character_id} 装备机甲 ${entry.item_id}（槽位 ${slot}${replaced.length ? `，换下 ${replaced[0].item_id}` : ''}）`;
+    }
+    // 卸下机甲（镜像 handlers/character.js reqCharacterUnequipArm：回背包）。
+    case 'unequip_arm': {
+      const char = findChar(doc, op.character_id);
+      const uuid = asInt(op.item_uuid);
+      if (!uuid) throw new OpError('unequip_arm 需要 item_uuid');
+      const idx = (char.arm_infos || []).findIndex((a) => Number(a.item_uuid) === uuid);
+      if (idx < 0) throw new OpError(`角色 ${char.character_id} 身上没有 uuid=${uuid} 的机甲`);
+      const [arm] = char.arm_infos.splice(idx, 1);
+      if (!Array.isArray(doc.bag.items)) doc.bag.items = [];
+      doc.bag.items.push(arm);
+      const payload = { item_id: arm.item_id, count: 1, item_uuid: String(arm.item_uuid) };
+      if (arm.arm_info) payload.arm_info = arm.arm_info;
+      delta(payload);
+      touchChar(ctx, char);
+      return `角色 ${char.character_id} 卸下机甲 ${arm.item_id}`;
+    }
     default:
       throw new OpError(`未知操作 ${kind}`);
   }
@@ -615,16 +884,26 @@ async function handleUpdate(req, res, accountId, body) {
   store.savePlayer(doc);
 
   if (live) {
-    if (ctx.itemDelta.changed_item_infos.length > 0) {
-      session.send('ntf_item_info', ctx.itemDelta);
-    }
+    // 顺序必须【先角色后道具】：客户端 BackpackSystem 只有看到 item_extra 才走「已装备」
+    // 分支，而它按 item_uuid 在 CharacterSystem 当前的 arm_infos 里找。机甲换装时换下来的
+    // 那件要回背包（带 arm_info），如果 ntf_item_info 先到，客户端还认为它挂在角色身上 →
+    // 命中「已装备」分支刷新属性、永不进背包，紧接着角色 ntf 又把它移出 arm_infos →
+    // 玩家界面上这件机甲凭空消失。先发角色，客户端拿到的是换装后的 arm_infos，回包命中
+    // 正常入包分支。对既有 op 无副作用（替换语义的 ntf 对 weapon_info 是幂等的）。
     for (const char of ctx.chars) {
       session.send('ntf_character_info', { changed_character_infos: [char] });
+    }
+    if (ctx.itemDelta.changed_item_infos.length > 0) {
+      session.send('ntf_item_info', ctx.itemDelta);
     }
     if (ctx.mallChanged) {
       // ntf_mall_info 必须整体带 month_card_info（坑 24），直接复用 mall 的构建器
       const info = mallGame.buildMallListInfo(doc);
       session.send('ntf_mall_info', { mall_infos: info.mall_infos, month_card_info: info.month_card_info });
+    }
+    if (ctx.universeResDelta && ctx.universeResDelta.some((v) => v !== 0)) {
+      // 宇宙资源变更即时推给客户端（本地副本靠这条累加；不推的话客户端资源条不涨）
+      session.send('ntf_universe_info', { res_value: ctx.universeResDelta });
     }
   }
 
@@ -689,6 +968,10 @@ function serverInfo(hooks) {
     backups: store.listBackups().length,
     can_stop: typeof (hooks && hooks.onStop) === 'function',
     unreleased_weapons: weaponData.UNRELEASED_WEAPON_IDS.size,
+    // 总览页「宇宙资源」卡片用它渲染自动补发开关的当前状态
+    universe_grant: (() => { const s = grantCfg(); return { enabled: s.on, floor: s.floor }; })(),
+    // 前端页脚/帮助里的「项目主页」用它，避免在 html 里再抄一份地址。
+    repo_url: homepage || 'https://github.com/XUNDEI/Nornium-ServerDev',
   };
 }
 
@@ -758,6 +1041,15 @@ async function handleServerAction(req, res, url, body, hooks) {
     const kicked = kickAllSessions(1);
     log.info(`[editor] 踢出全部在线玩家：${kicked} 个连接`);
     return ok(res, { kicked });
+  }
+
+  // 宇宙资源自动补发开关（全局，写 runtime-config.json，立即生效无需重启）
+  if (url === '/editor/api/server/universe_grant') {
+    const state = setGrantConfig({
+      enabled: body ? body.enabled : undefined,
+      floor: body ? body.floor : undefined,
+    });
+    return ok(res, { enabled: state.on, floor: state.floor });
   }
 
   // 立即打一份快照（不进维护窗口：快照只是拷贝，不需要一致性保证）
@@ -838,10 +1130,110 @@ async function handleServerAction(req, res, url, body, hooks) {
   return fail(res, `未知服务端接口 ${url}`);
 }
 
+// ------------------------------------------------------------ 启动器（游戏工作区）
+//
+// 「游戏」工作区 = 启动游戏 + mod 管理。全部接口都不碰存档、不进维护窗口
+// （mod 只动 ServerDev\mods\、游戏 Paks 目录和 reference\gamedata\，与在线会话无关）。
+// 唯一的时序注意点：applyServerPatches 会热重载 gamedata 缓存，正在游玩的会话
+// 下一次查表就拿到新数据 —— 这是特性（mod 即时生效），不是 bug。
+async function handleGameApi(req, res, url, body) {
+  const method = req.method || 'GET';
+
+  if (method === 'GET' && url === '/editor/api/game') {
+    return ok(res, mods.gameInfo());
+  }
+
+  if (method !== 'POST') return fail(res, '请用 POST');
+
+  if (url === '/editor/api/game/launch') {
+    try {
+      return ok(res, mods.launchGame());
+    } catch (err) {
+      return fail(res, `启动失败：${err.message}`);
+    }
+  }
+
+  if (url === '/editor/api/game/mods/import') {
+    const p = body && body.path ? String(body.path) : '';
+    if (!p.trim()) return fail(res, '缺少 path（mod 的 zip 文件或目录）');
+    try {
+      const st = fs.statSync(p);
+      const result = st.isDirectory() ? mods.importFromDir(p) : mods.importFromZipFile(p);
+      return ok(res, result);
+    } catch (err) {
+      if (err.code === 'ENOENT') return fail(res, `路径不存在：${p}`);
+      return fail(res, err.message);
+    }
+  }
+
+  if (url === '/editor/api/game/mods/enable') {
+    const id = body && body.id;
+    if (!id) return fail(res, '缺少 id');
+    try {
+      mods.setEnabled(String(id), body.enabled !== false);
+      return ok(res, { id, enabled: body.enabled !== false });
+    } catch (err) {
+      return fail(res, err.message);
+    }
+  }
+
+  if (url === '/editor/api/game/mods/order') {
+    if (!body || !Array.isArray(body.ids)) return fail(res, '缺少 ids 数组（完整启用顺序，越靠后越优先）');
+    mods.setOrder(body.ids.map(String));
+    return ok(res, { enabled_order: mods.gameInfo().enabled_order });
+  }
+
+  if (url === '/editor/api/game/mods/remove') {
+    const id = body && body.id;
+    if (!id) return fail(res, '缺少 id');
+    try {
+      mods.removeMod(String(id));
+      return ok(res, { removed: id });
+    } catch (err) {
+      return fail(res, err.message);
+    }
+  }
+
+  if (url === '/editor/api/game/mods/build') {
+    try {
+      const result = mods.buildInstalled({ dryRun: body && body.dry_run === true });
+      return ok(res, result);
+    } catch (err) {
+      return fail(res, err.message);
+    }
+  }
+
+  if (url === '/editor/api/game/mods/uninstall') {
+    mods.uninstall();
+    return ok(res, { uninstalled: true });
+  }
+
+  if (url === '/editor/api/game/server_patch/apply') {
+    try {
+      return ok(res, { ...mods.applyServerPatches(), note: '已热重载，正在游玩的会话下一次查表即生效' });
+    } catch (err) {
+      return fail(res, err.message);
+    }
+  }
+
+  if (url === '/editor/api/game/server_patch/revert') {
+    try {
+      return ok(res, mods.revertServerPatches());
+    } catch (err) {
+      return fail(res, err.message);
+    }
+  }
+
+  return fail(res, `未知启动器接口 ${url}`);
+}
+
 async function handleApi(req, res, url, body, hooks) {
   const method = req.method || 'GET';
   if (url.startsWith('/editor/api/server/')) {
     return handleServerAction(req, res, url, body, hooks);
+  }
+  if (url.startsWith('/editor/api/game')) {
+    return handleGameApi(req, res, url, body);
   }
   if (method === 'GET' && url === '/editor/api/server') {
     return ok(res, serverInfo(hooks));

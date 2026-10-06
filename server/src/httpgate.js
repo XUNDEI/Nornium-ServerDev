@@ -29,7 +29,10 @@ function createGate(port, host, hooks = {}) {
       await editor.handle(req, res, url, body, hooks);
       return;
     }
-    log.info(`[http] ${req.method} ${req.url} (${body.length}B)`);
+    // 客户端的 /client/system/serverStatus、/client/notice/list、/client/marquee/list
+    // 都是轮询（实测 marquee 一个就 283 条），逐条 info 会把日志刷满：明细留给
+    // GHS_VERBOSE=1，未知端点仍然 warn（那才是要看的）。
+    log.verbose(`[http] ${req.method} ${req.url} (${body.length}B)`);
     res.setHeader('Content-Type', 'application/json');
 
     const ok = (data) => res.end(JSON.stringify({ code: 0, data: data ?? {} }));

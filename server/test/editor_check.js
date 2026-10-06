@@ -16,8 +16,11 @@ const path = require('path');
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ghs-editor-'));
 const tmpDataDir = path.join(tmpRoot, 'data');
 process.env.GHS_DATA_DIR = tmpDataDir;
+// runtime-config.json 同样隔离（资源自动补发开关的读写测试写这里，绝不碰真实配置）
+process.env.GHS_RUNTIME_CONFIG = path.join(tmpRoot, 'runtime-config.json');
 
 const store = require('../src/store');
+const gd = require('../src/gamedata');
 const { createGate } = require('../src/httpgate');
 
 let failures = 0;
@@ -106,15 +109,25 @@ const post = (port, p, data) => API(port, p, {
       && cat.body.data.characters.length === 10,
       `catalog carries weapons + playable characters (${cat.body.data.weapons.length}/${cat.body.data.characters.length})`);
     const salome = cat.body.data.characters.find((c) => c.id === 10201);
-    // 10201 是礼器（profession 5）。注意武器 id 首位不是 subType（坑 37：4072601 首位
-    // 是 4 却是礼器）——subType 5 里最高稀有度且已实装的武器是 4071611
-    check(salome && salome.best_weapon === 4071611 && Number(salome.profession) === 5,
-      `character 10201 maps to best-in-type weapon ${salome ? salome.best_weapon : '?'}`);
-    // 回归：巨刃（subType 1）里稀有度最高、id 最大的是 1081601「颂歌」，但它未实装
-    // （客户端没有模型/图标/技能行），不能被推给任何角色。
-    const giant = cat.body.data.characters.find((c) => c.id === 10701);
-    check(giant && giant.best_weapon !== 1081601,
-      `the 巨刃 character is not pointed at the unreleased 1081601 (got ${giant ? giant.best_weapon : '?'})`);
+    // 10201 的专武是礼器族 4070601「受命者的视觉」，7★ 形态 4071611「总控者的视觉」。
+    // 注意武器 id 首位不是 subType（坑 37：4072601 首位是 4 却是礼器）。
+    check(salome && salome.exclusive_weapon === 4071611
+      && salome.exclusive_weapon_base === 4070601 && Number(salome.profession) === 5,
+      `character 10201 maps to her exclusive weapon ${salome ? salome.exclusive_weapon : '?'}`);
+    // 专武映射抽查：旧版按「同类型最高稀有度」猜，10102/10601 都指到 2061610、
+    // 10701 被指到信风的 1071611、10801 被指到鱼啄雨的 7081611 —— 逐一锁死。
+    const expectMap = { 10101: 3060611, 10102: 2051611, 10601: 2041611, 10701: 1060611, 10801: 7070611, 11202: 7081611 };
+    const mapBad = [];
+    for (const [cid, wid] of Object.entries(expectMap)) {
+      const c = cat.body.data.characters.find((x) => x.id === Number(cid));
+      if (!c || c.exclusive_weapon !== wid) mapBad.push(`${cid}→${c ? c.exclusive_weapon : '缺角色'}`);
+    }
+    check(mapBad.length === 0, `catalog 专武映射与官方口径一致${mapBad.length ? ' 例外: ' + mapBad.join('; ') : ''}`);
+    // 回归：任何专武都不能指向未实装武器（1081601「颂歌」等）
+    const ghostTarget = cat.body.data.characters
+      .filter((c) => c.exclusive_weapon === 1081601 || c.exclusive_weapon_base === 1081601);
+    check(ghostTarget.length === 0,
+      'no character is pointed at the unreleased 1081601');
     const unreleased = cat.body.data.weapons.filter((w) => w.released === false);
     check(unreleased.length === 10 && unreleased.some((w) => w.id === 1081601),
       `catalog flags exactly the 10 unreleased weapons (${unreleased.length})`);
@@ -166,6 +179,32 @@ const post = (port, p, data) => API(port, p, {
     check(rGhost.body.code === 0 && /未实装/.test(rGhost.body.data.error || ''),
       `adding an unreleased weapon is rejected (${rGhost.body.data && rGhost.body.data.error})`);
 
+    // 专武发放（新档）：每人一把 7★ 专武共 10 把；skip_owned 下重复执行幂等
+    const seed2 = store.createAccount('exclusivehero', 'pw');
+    store.savePlayer({
+      account_id: seed2.account_id,
+      player: { player_name: '专武勇者', register_seconds: '0', player_id: seed2.account_id },
+      bag: { items: [], next_uuid: 6001 },
+      characters: [],
+      gacha: { type_infos: {}, records: [], pending: null, pending_cost: 0 },
+      mall: { purchase: {}, charge_point: 0, received_charge_points: [], month_card_expire: 0, month_card_last_tick: 0 },
+      mail: { next_uuid: 1003, list: [] },
+    });
+    const rEx = await post(port, `/editor/api/player/${seed2.account_id}/update`, { ops: [
+      { op: 'grant_exclusive_weapons', skip_owned: true },
+    ] });
+    check(rEx.body.code === 0 && /发放专武 10 把/.test(rEx.body.data.notes.join()),
+      `grant_exclusive_weapons grants 10 signature weapons (${rEx.body.data.notes.join(' | ')})`);
+    const exWeapons = store.loadPlayer(seed2.account_id).bag.items.filter((it) => it.weapon_info);
+    check(exWeapons.length === 10, `the fresh bag now holds 10 weapon instances (${exWeapons.length})`);
+    check(exWeapons.every((w) => Number(gd.query('d_bag_item_weapon', w.item_id).rarity) === 7),
+      'every granted exclusive weapon is a 7★');
+    const rEx2 = await post(port, `/editor/api/player/${seed2.account_id}/update`, { ops: [
+      { op: 'grant_exclusive_weapons', skip_owned: true },
+    ] });
+    check(rEx2.body.code === 0 && /没有需要发放的专武/.test(rEx2.body.data.notes.join()),
+      'grant_exclusive_weapons with skip_owned is idempotent');
+
     // 部分失败：最后一个操作引用不存在的 uuid，前面的仍要生效并报告 error
     const r2 = await post(port, `/editor/api/player/${id}/update`, { ops: [
       { op: 'set_currency', item_id: 9001, count: 123 },
@@ -182,6 +221,59 @@ const post = (port, p, data) => API(port, p, {
 
     const r4 = await post(port, `/editor/api/player/${id}/update`, {});
     check(r4.body.code === 1 && /ops/.test(r4.body.msg), 'a body without ops is rejected');
+
+    // ---------------- 宇宙资源（set_universe_res）----------------
+    // 资源只存在于进行中的远航：没开局先报错；开局后按 1..4 改并落数。
+    const noRun = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_universe_res', res_type: 2, count: 500 },
+    ] });
+    check(noRun.body.code === 0 && /远航/.test(noRun.body.data.error || ''),
+      `set_universe_res without an active run is rejected (${noRun.body.data && noRun.body.data.error})`);
+
+    const U = require('../src/game/universe');
+    const doc1 = store.loadPlayer(id);
+    const sent = [];
+    require('../src/handlers/universe').handle('req_new_universe')(
+      { player: doc1, send: (n, m, r) => sent.push({ n, m, r }) },
+      { difficulty_value: 1, main_planet_id: 110, map_type: 1, character_ids: [doc1.characters[0].character_id] },
+    );
+    store.savePlayer(doc1);
+    check(doc1.universe && doc1.universe.active, 'a run was created for the resource tests');
+
+    const rRes = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_universe_res', res_type: 2, count: 999 },
+      { op: 'set_universe_res', res_type: 1, count: 12 },
+    ] });
+    check(rRes.body.code === 0 && !rRes.body.data.error,
+      `set_universe_res applies (${(rRes.body.data.notes || []).join(' | ')})`);
+    const runDoc = store.loadPlayer(id);
+    check(Number(runDoc.universe.res_value[2]) === 999 && Number(runDoc.universe.res_value[1]) === 12,
+      `the run's res_value was written (${JSON.stringify(runDoc.universe.res_value)})`);
+
+    const badType = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_universe_res', res_type: 9, count: 1 },
+    ] });
+    check(badType.body.code === 0 && /1\.\.4/.test(badType.body.data.error || ''),
+      'res_type outside 1..4 is rejected');
+
+    // ---------------- 资源自动补发开关（universe_grant 端点）----------------
+    // 写的是 GHS_RUNTIME_CONFIG 指向的临时文件，不碰真实 runtime-config.json。
+    const srvInfo = await API(port, '/editor/api/server');
+    check(srvInfo.body.data.universe_grant && srvInfo.body.data.universe_grant.enabled === true
+      && Number(srvInfo.body.data.universe_grant.floor) === 100,
+      `server info exposes the default grant state (${JSON.stringify(srvInfo.body.data.universe_grant)})`);
+
+    const gOff = await post(port, '/editor/api/server/universe_grant', { enabled: false, floor: 50 });
+    check(gOff.body.code === 0 && gOff.body.data.enabled === false && gOff.body.data.floor === 50,
+      'POST universe_grant toggles the switch');
+    const savedCfg = JSON.parse(fs.readFileSync(process.env.GHS_RUNTIME_CONFIG, 'utf8'));
+    check(savedCfg.universe_auto_grant === false && savedCfg.universe_resource_floor === 50,
+      'the runtime config file carries the new keys');
+    check(require('../src/handlers/universe').grantCfg().on === false,
+      'grantCfg (live spend path) sees the change without a restart');
+    const gOn = await post(port, '/editor/api/server/universe_grant', { enabled: true });
+    check(gOn.body.data.enabled === true && gOn.body.data.floor === 50,
+      'floor survives a toggle-only update');
   }
 
   // ---------------- 等级 / 光淬编辑 ----------------
@@ -318,6 +410,159 @@ const post = (port, p, data) => API(port, p, {
       '直接点亮不消耗星位之钉（仍是 7+2 把）');
   }
 
+  // ---------------- 角色精细化：逐孔星位 / 逐件皮肤 / 穿戴 / 技能 / 机甲 ----------------
+  {
+    const id = 1;
+    const cat = await API(port, '/editor/api/catalog');
+    const data = cat.body.data;
+    const yu = data.characters.find((c) => c.id === 10201);
+    check(Array.isArray(yu.talents) && yu.talents.length === 23 && yu.talents[0].hole === 1
+      && yu.talents[0].need_kind === 'level' && yu.talents[0].need_value === 1,
+    `catalog carries per-hole talent details（${yu.talents.length} 孔，首孔 ${yu.talents[0].need_kind}=${yu.talents[0].need_value}）`);
+    check(yu.skins && yu.skins[1].filter((s) => s.default).length === 1
+      && yu.skins[2].filter((s) => s.default).length === 1 && yu.skins[3].length > 0,
+    `catalog carries the skin groups with exactly one default per class（${yu.skins[1].length}/${yu.skins[2].length}/${yu.skins[3].length}）`);
+    check(Array.isArray(yu.skills) && yu.skills.length > 0 && yu.skills.some((s) => s.max_level > 0),
+      `catalog carries the skill list with max levels（${yu.skills.length} 条，最大 ${Math.max(...yu.skills.map((s) => s.max_level))}）`);
+    check(Array.isArray(data.equips) && data.equips.length === 60
+      && data.equips.every((e) => e.slot >= 1 && e.slot <= 6 && e.name),
+    `catalog carries all 60 机甲 with their six slots`);
+
+    const readChar = () => store.loadPlayer(id).characters.find((c) => c.character_id === 10201);
+    const root = yu.talents[0].id;
+    const second = yu.talents[1].id;
+
+    // 逐孔点亮：只留前两个（重复项要去重、顺序按孔位）
+    const r1 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_talents', character_id: 10201, talent_ids: [second, root, second] },
+    ] });
+    check(r1.body.code === 0 && !r1.body.data.error && /2\/23/.test((r1.body.data.notes || []).join(' ')),
+      `set_talents lights exactly the listed holes（${(r1.body.data.notes || []).join(' | ')}）`);
+    let ch = readChar();
+    check(ch.talent_ids.length === 2 && ch.talent_ids[0] === root && ch.talent_ids[1] === second,
+      `talent_ids are deduped and sorted by hole（${ch.talent_ids.join(',')}）`);
+
+    // 别的角色的星位 id 必须被拒
+    const badTal = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_talents', character_id: 10201, talent_ids: [1070101] },
+    ] });
+    check(badTal.body.code === 0 && /不属于角色/.test(badTal.body.data.error || ''),
+      'set_talents rejects a talent that belongs to another character');
+    check(readChar().talent_ids.length === 2, 'the rejected batch left the previous selection intact');
+
+    // 皮肤：只勾一件非默认 → 默认皮肤必须被自动并回来
+    const def1 = yu.skins[1].find((s) => s.default).id;
+    const extra = yu.skins[1].find((s) => !s.default).id;
+    const r2 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_skins', character_id: 10201, dress_type: 1, skin_ids: [extra] },
+    ] });
+    check(r2.body.code === 0 && !r2.body.data.error && /2 件/.test((r2.body.data.notes || []).join(' ')),
+      `set_skins writes the listed skins（${(r2.body.data.notes || []).join(' | ')}）`);
+    ch = readChar();
+    check(ch.own_character_skin_ids.length === 2
+      && ch.own_character_skin_ids.includes(def1) && ch.own_character_skin_ids.includes(extra),
+    `the default skin is forced back into the unlock list（${ch.own_character_skin_ids.join(',')}）`);
+
+    const r3 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_skins', character_id: 10201, dress_type: 1, skin_ids: [] },
+    ] });
+    check(r3.body.code === 0 && readChar().own_character_skin_ids.length === 1
+      && readChar().own_character_skin_ids[0] === def1,
+    'an empty skin list collapses to just the default');
+
+    const badSkin = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_skins', character_id: 10201, dress_type: 2, skin_ids: [extra] },
+    ] });
+    check(badSkin.body.code === 0 && /不属于角色/.test(badSkin.body.data.error || ''),
+      'set_skins rejects a skin from the wrong class');
+
+    // 穿戴：未解锁的皮肤会自动补进解锁列表；0 = 恢复默认
+    const r4 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_worn_skin', character_id: 10201, dress_type: 1, skin_id: extra },
+    ] });
+    ch = readChar();
+    check(r4.body.code === 0 && !r4.body.data.error && ch.character_skin_id === extra
+      && ch.own_character_skin_ids.includes(extra),
+    `set_worn_skin equips and auto-unlocks（character_skin_id=${ch.character_skin_id}）`);
+    const r5 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_worn_skin', character_id: 10201, dress_type: 1, skin_id: 0 },
+    ] });
+    check(r5.body.code === 0 && readChar().character_skin_id === 0, 'wearing 0 falls back to the default skin');
+
+    // 技能：等级夹到 d_skill_fight_level 的上限
+    const sk = yu.skills.find((s) => s.max_level > 0);
+    const r6 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_character_skills', character_id: 10201, skills: [{ skill_id: sk.id, skill_level: 9999 }] },
+    ] });
+    ch = readChar();
+    const info = (ch.skill_infos || []).find((s) => Number(s.skill_id) === sk.id);
+    check(r6.body.code === 0 && !r6.body.data.error && info && info.skill_level === sk.max_level
+      && /夹到上限/.test((r6.body.data.notes || []).join(' ')),
+    `set_character_skills clamps to the table max（${sk.id} → ${info && info.skill_level}/${sk.max_level}）`);
+    const badSkill = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'set_character_skills', character_id: 10201, skills: [{ skill_id: 99999, skill_level: 2 }] },
+    ] });
+    check(badSkill.body.code === 0 && /不属于角色/.test(badSkill.body.data.error || ''),
+      'set_character_skills rejects a skill that belongs to another character');
+
+    // 机甲：发放 → 装备（同槽位换装）→ 卸下
+    const slot1 = data.equips.filter((e) => e.slot === 1);
+    const armA = slot1[0].id;
+    const armB = slot1[1].id;
+    await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'add_item', item_id: armA, count: 1 },
+      { op: 'add_item', item_id: armB, count: 1 },
+    ] });
+    let doc = store.loadPlayer(id);
+    const findArm = (itemId) => doc.bag.items.find((it) => Number(it.item_id) === Number(itemId));
+    const uuidA = findArm(armA).item_uuid;
+    const uuidB = findArm(armB).item_uuid;
+    check(findArm(armA).arm_info && typeof findArm(armA).arm_info.break_times === 'number',
+      'a granted 机甲 carries arm_info (客户端要靠它显示属性)');
+
+    const r7 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'equip_arm', character_id: 10201, item_uuid: uuidA },
+    ] });
+    doc = store.loadPlayer(id);
+    ch = doc.characters.find((c) => c.character_id === 10201);
+    check(r7.body.code === 0 && !r7.body.data.error && ch.arm_infos.length === 1
+      && Number(ch.arm_infos[0].item_uuid) === Number(uuidA)
+      && !doc.bag.items.some((it) => Number(it.item_uuid) === Number(uuidA)),
+    `equip_arm moves the 机甲 from the bag onto the character（${(r7.body.data.notes || []).join(' | ')}）`);
+
+    // 同槽位换装：旧件回背包，身上仍然只挂一件
+    const r8 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'equip_arm', character_id: 10201, item_uuid: uuidB },
+    ] });
+    doc = store.loadPlayer(id);
+    ch = doc.characters.find((c) => c.character_id === 10201);
+    check(r8.body.code === 0 && ch.arm_infos.length === 1
+      && Number(ch.arm_infos[0].item_uuid) === Number(uuidB)
+      && doc.bag.items.some((it) => Number(it.item_uuid) === Number(uuidA)),
+    'equipping another 机甲 of the same slot sends the old one back to the bag');
+
+    const r9 = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'unequip_arm', character_id: 10201, item_uuid: uuidB },
+    ] });
+    doc = store.loadPlayer(id);
+    ch = doc.characters.find((c) => c.character_id === 10201);
+    check(r9.body.code === 0 && ch.arm_infos.length === 0
+      && doc.bag.items.some((it) => Number(it.item_uuid) === Number(uuidB)),
+    'unequip_arm puts the 机甲 back into the bag');
+
+    const stackUuid = doc.bag.items.find((it) => it.item_id === 9001).item_uuid;
+    const notArm = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'equip_arm', character_id: 10201, item_uuid: stackUuid },
+    ] });
+    check(notArm.body.code === 0 && /不是机甲/.test(notArm.body.data.error || ''),
+      'equip_arm refuses a bag entry that is not a 机甲');
+    const ghostArm = await post(port, `/editor/api/player/${id}/update`, { ops: [
+      { op: 'unequip_arm', character_id: 10201, item_uuid: 987654 },
+    ] });
+    check(ghostArm.body.code === 0 && /没有 uuid=987654 的机甲/.test(ghostArm.body.data.error || ''),
+      'unequip_arm reports a missing 机甲 cleanly');
+  }
+
   // ---------------- export 接口 ----------------
   {
     const r1 = await post(port, '/editor/api/export', {});
@@ -349,6 +594,9 @@ const post = (port, p, data) => API(port, p, {
       `server info carries version/ports/uptime (v${d.version}, ${d.uptime_seconds}s)`);
     check(d.can_stop === true && d.unreleased_weapons === 10,
       'server info reports the stop hook and the unreleased-weapon count');
+    check(d.repo_url === require('../package.json').homepage
+      && /^https:\/\/github\.com\//.test(d.repo_url),
+    `server info carries the project homepage for the editor footer (${d.repo_url})`);
 
     const kick = await post(port, '/editor/api/server/kick', {});
     check(kick.body.code === 0 && kick.body.data.kicked === 0, 'kick with no live sessions reports 0');
@@ -417,6 +665,16 @@ const post = (port, p, data) => API(port, p, {
     check(pastCursor.body.data.lines.some((l) => l.text.includes(markerB))
       && !pastCursor.body.data.lines.some((l) => l.text.includes(marker)),
       'a line written after the cursor is returned exactly once');
+
+    // 客户端的轮询端点（marquee/notice/serverStatus）不再进 info：实测它能占掉日志的
+    // 1/16（283 条），可人工排查时毫无信息量。明细留给 GHS_VERBOSE=1；未知端点仍 warn。
+    const pollBefore = await API(port, '/editor/api/console/tail?after=0');
+    const pollCursor = pollBefore.body.data.last;
+    const poll = await post(port, '/client/marquee/list', {});
+    const pollAfter = await API(port, `/editor/api/console/tail?after=${pollCursor}`);
+    check(!pollAfter.body.data.lines.some((l) => /\[http\] POST \/client\/marquee\/list/.test(l.text)),
+      'client polling no longer writes an [http] access line into the log');
+    check(poll.status === 200, 'the polling endpoint itself still answers normally');
 
     // SSE：首块是 retry 提示，开流前的日志行会重放，随后 marker 实时到达
     const sseMarker = `console-check-sse-${Date.now()}`;

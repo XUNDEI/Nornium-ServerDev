@@ -68,6 +68,28 @@ function pickCardPos(posId, cfg, freeRecall = false) {
   return { card_pos_id: row.id, card_id: 0, upgrade_times: 0 };
 }
 
+// 「额外建筑格」（B01_Nothing，nameId 11310104）开局**不带**卡位：它的
+// onExploreEffectTriggerID 挂着 effectType 122 的效果（104 号格 → trigger 122，
+// effectConfig [1]；教学图 102 号格 → trigger 123，[3] 免费召回位），官方语义是
+// 踩上去探索时这个格子才变成可用卡位，effectConfig[0] 指定 d_srpg_card_pos 的行号。
+// 客户端有专门的 ntf_main_pos_add_attach 通道接收追加的 attach（SrpgController.lua:279）。
+function cardPosAttach(rowId) {
+  // 行号必须显式存在：探索效果的 effectConfig[0] 或修复路径里的 122 行缺一个都不补，
+  // 否则任何 state=3 的格子都会被兜底成卡位 1（剧情图基地格就是这么被误挂的）
+  if (!Number(rowId)) return null;
+  const row = gd.query('d_srpg_card_pos', Number(rowId)) || gd.query('d_srpg_card_pos', CARD_SLOT_POS_ID);
+  return row ? { main_pos_card_pos_info: { card_pos_id: row.id, card_id: 0, upgrade_times: 0 } } : null;
+}
+
+// 这个格子的探索效果里是否带「追加卡位」（effectType 122）；没有则 null。
+function extraSlotRow(cellCfg) {
+  for (const tid of intArray(cellCfg && cellCfg.onExploreEffectTriggerID)) {
+    const row = gd.query('d_srpg_effect_trigger', tid);
+    if (row && Number(row.effectType) === 122) return row;
+  }
+  return null;
+}
+
 // A cell's attachment (deploy-a-building slot / merchant) comes from its own
 // `d_srpg_main_pos_base` row — the `posModel` and `nameId` say what the cell is.
 // Guessing from a digit prefix of the id used to give the wrong answer in both
@@ -103,11 +125,12 @@ function refreshAttach(u) {
   let changed = false;
   for (const cell of Object.values(u.main_pos)) {
     if (cell.attach) continue;
-    const attach = attachForPos(
-      cell.main_pos_id,
-      gd.query('d_srpg_main_pos_base', cell.main_pos_id),
-      freeRecall,
-    );
+    const cfg = gd.query('d_srpg_main_pos_base', cell.main_pos_id);
+    // 额外建筑格（B01_Nothing）只有**已探索**的才补卡位 —— 未探索的额外格本来
+    // 就该是空位，探索（effectType 122）才是它的卡位来源。已在旧服务端下探索过
+    // 额外格的进行中存档靠这条修复。
+    const attach = attachForPos(cell.main_pos_id, cfg, freeRecall)
+      || (cell.state === 3 ? cardPosAttach(intArray(extraSlotRow(cfg)?.effectConfig)[0]) : null);
     if (attach) {
       cell.attach = attach;
       changed = true;
@@ -1083,6 +1106,7 @@ module.exports = {
   revealFrontier, raiseState,
   changeResource, resourceDeltas, spendResource, substitutionCostOf, ensureBossReachable,
   attachForPos, refreshAttach, spawnDueBossWaves, reconcileBossWaves, pickBossCell,
+  cardPosAttach, extraSlotRow,
   posAt, neighborsOf,
   newFight, makeCardSelect, addCardSelect, cardSelects, findCardSelect, dropCardSelect,
   refreshCardSelect, intArray, cardListOf, cardsOfPool, poolIdForCards, cardsForEffectConfig,

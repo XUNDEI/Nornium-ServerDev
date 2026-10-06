@@ -37,6 +37,9 @@ const SERVER_DIR = __dirname;
 const REPO_ROOT = path.join(SERVER_DIR, '..');
 const CONFIG_FILE = path.join(SERVER_DIR, 'runtime-config.json');
 const AUTO_LAUNCH_FLAG = path.join(SERVER_DIR, 'auto-launch.flag');
+// 项目主页：单一来源是 package.json.homepage（启动器横幅 / 服务端横幅 / 编辑器网页同源）。
+const REPO_URL = require('./package.json').homepage
+  || 'https://github.com/XUNDEI/Nornium-ServerDev';
 
 function savedDir() {
   const appData = process.env.LOCALAPPDATA
@@ -80,6 +83,32 @@ function ok(text) {
 }
 function warn(text) {
   console.log(`    ~~  ${text}`);
+}
+
+// ------------------------------------------------- 输出档位：热启动不念旧账
+//
+// 双击「点我启动.bat」的第二次之后，配置、依赖、客户端文件都已经就位，再把
+// step()/ok() 的每一步打一遍纯属噪声（用户要的是「能玩」而不是每次看一遍向导）。
+// 档位由一个纯函数决定，便于单测；首次配置、重新探测路径、重写客户端文件、
+// 安装依赖、任何失败/告警仍然走完整输出。--check / --doctor 是显式命令，不受影响。
+function depsPresent() {
+  return ['protobufjs', 'des.js'].every((p) => fs.existsSync(path.join(SERVER_DIR, 'node_modules', p)));
+}
+
+// 与 writeClientFiles 同一判据：客户端配置是否已是当前版本（无需重写）。
+function clientFilesCurrent(dir) {
+  try {
+    return clientFileSpecs().every((spec) => {
+      const file = path.join(dir, spec.name);
+      return fs.existsSync(file) && fs.readFileSync(file, 'utf8') === spec.body;
+    });
+  } catch (_) {
+    return false;
+  }
+}
+
+function shouldCompactStartup({ fromBat, cfgValid, clientConfigCurrent, depsInstalled } = {}) {
+  return Boolean(fromBat && cfgValid && clientConfigCurrent && depsInstalled);
 }
 
 // ------------------------------------------------------------------- 1. 环境
@@ -180,12 +209,13 @@ function manualInstallHelp() {
   console.log('      npm install --registry=https://registry.npmmirror.com');
 }
 
-function ensureDependencies() {
+function ensureDependencies(quiet = false) {
   const deps = ['protobufjs', 'des.js'];
   const missingDeps = () => deps.filter((p) => !fs.existsSync(path.join(SERVER_DIR, 'node_modules', p)));
 
   if (!missingDeps().length) {
-    ok('依赖已就绪（protobufjs / des.js）');
+    // 热启动（quiet）时不单独报一行：调用方会把它并进「环境已就绪」那一行
+    if (!quiet) ok('依赖已就绪（protobufjs / des.js）');
     return true;
   }
 
@@ -598,15 +628,9 @@ async function main() {
   // 启动器（点我启动.bat）是纯 ASCII，中文横幅由这里打印，见文件头注释
   line('=');
   console.log(' Nornium ServerDev - 失乐星图本地私服');
-  console.log(' 完全免费开源 · 若你是付费买到的，请联系卖家退款，你被骗了');
+  console.log(` 完全免费开源（付费买到即被骗）· 项目主页 ${REPO_URL}`);
   line('=');
   console.log('');
-  console.log('---- 第 1 步：初始化配置（自动完成，不需要手动拷文件） ----');
-
-  step(1, '检查运行环境');
-  if (!checkNode() || !checkReferenceAssets()) return 1;
-  ok(`Node.js ${process.versions.node}`);
-  if (!ensureDependencies()) return 1;
 
   const dirSaved = savedDir();
   if (!dirSaved) {
@@ -614,9 +638,26 @@ async function main() {
     return 1;
   }
 
-  step(2, '定位《失乐星图》安装目录');
-  let gamePath = null;
+  // 输出档位：双击启动器 + 配置有效 + 客户端文件已是私服配置 + 依赖已装 → 只报结果。
+  // 这四件事都提前能判断（clientFilesCurrent 与 writeClientFiles 同一判据），所以打印
+  // 之前就能定档，不会出现「说在检查、其实什么都没变」的废话。
   const cfg = loadConfig();
+  const QUIET = shouldCompactStartup({
+    fromBat: FROM_BAT,
+    cfgValid: Boolean(cfg && isGameRoot(cfg.game_path)),
+    clientConfigCurrent: clientFilesCurrent(dirSaved),
+    depsInstalled: depsPresent(),
+  });
+
+  console.log('---- 第 1 步：初始化配置（自动完成，不需要手动拷文件） ----');
+
+  if (!QUIET) step(1, '检查运行环境');
+  if (!checkNode() || !checkReferenceAssets()) return 1;
+  if (!QUIET) ok(`Node.js ${process.versions.node}`);
+  if (!ensureDependencies(QUIET)) return 1;
+
+  if (!QUIET) step(2, '定位《失乐星图》安装目录');
+  let gamePath = null;
   if (CLI_GAME_PATH) {
     gamePath = resolveGameRoot(CLI_GAME_PATH);
     if (!gamePath) {
@@ -625,7 +666,7 @@ async function main() {
     }
   } else if (cfg && isGameRoot(cfg.game_path)) {
     gamePath = canonicalPath(cfg.game_path);
-    console.log(`    使用已保存的配置：${gamePath}`);
+    if (!QUIET) console.log(`    使用已保存的配置：${gamePath}`);
   } else {
     if (cfg) warn(`已保存的路径失效了（${cfg.game_path}），重新配置。`);
     let answer = await promptGamePath(detectCandidates());
@@ -637,14 +678,15 @@ async function main() {
       gamePath = resolveGameRoot(answer);
     }
   }
-  ok(`游戏目录 ${gamePath}`);
+  if (QUIET) ok(`环境已就绪：Node.js ${process.versions.node} · 依赖已装 · 游戏目录 ${gamePath}（配置未改动）`);
+  else ok(`游戏目录 ${gamePath}`);
 
-  step(3, `写入客户端配置 ${dirSaved}`);
+  if (!QUIET) step(3, `写入客户端配置 ${dirSaved}`);
   const written = writeClientFiles(dirSaved);
   if (written.length) ok(`已写入 ${written.join('、')}`);
-  else ok('channel.lua / version.lua 已是私服配置，无需改动');
+  else if (!QUIET) ok('channel.lua / version.lua 已是私服配置，无需改动');
 
-  step(4, '是否自动拉起游戏');
+  if (!QUIET) step(4, '是否自动拉起游戏');
   // 已经有配置时不再重复提问（双击就该直接开玩）：沿用上次的选择，
   // 除非显式 --reset。
   // 有配置就沿用上次的选择；没有配置时默认开启（搭配 --yes 用于无人值守）。
@@ -654,10 +696,10 @@ async function main() {
       .toLowerCase();
     autoLaunch = !ans || ans === 'y' || ans === 'yes';
   }
-  console.log(`    ${autoLaunch ? '已开启' : '未开启'}自动拉起`);
+  if (!QUIET) console.log(`    ${autoLaunch ? '已开启' : '未开启'}自动拉起`);
   if (autoLaunch) {
     fs.writeFileSync(AUTO_LAUNCH_FLAG, `steam://rungameid/${STEAM_APP_ID}\n`, 'utf8');
-    console.log(`    （不想用了就删掉 ${path.relative(REPO_ROOT, AUTO_LAUNCH_FLAG)}）`);
+    if (!QUIET) console.log(`    （不想用了就删掉 ${path.relative(REPO_ROOT, AUTO_LAUNCH_FLAG)}）`);
   } else if (fs.existsSync(AUTO_LAUNCH_FLAG)) {
     fs.rmSync(AUTO_LAUNCH_FLAG, { force: true });
     ok('已删除 auto-launch.flag');
@@ -673,7 +715,7 @@ async function main() {
     auto_launch: autoLaunch,
     configured_at: new Date().toISOString(),
   });
-  console.log(`    配置已保存到 ${path.relative(REPO_ROOT, CONFIG_FILE)}`);
+  if (!QUIET) console.log(`    配置已保存到 ${path.relative(REPO_ROOT, CONFIG_FILE)}`);
 
   line('=');
   console.log(' 配置完成。');
@@ -682,13 +724,20 @@ async function main() {
   if (FROM_BAT) {
     // 启动器只会在本脚本成功返回后再 node index.js，所以这里说明的是"接下来"
     console.log('---- 第 2 步：启动服务端 ----');
-    console.log(autoLaunch
-      ? ' 接下来会用 Steam 拉起游戏（服务端同时启动），稍等几秒即可看到游戏窗口。'
-      : ' 请在 Steam 里手动启动《失乐星图》。');
-    console.log(' 游戏登录界面随便填账号和密码，点「注册」就能进主城。');
-    console.log(' 停止服务请在本窗口输入 stop 回车（或按 Ctrl+C）。');
-    console.log(' 存档在 server\\data\\，删掉它就能重置；');
-    console.log(' 想找回旧存档：在本窗口输入 load <备份目录>（见 README）。');
+    if (QUIET) {
+      console.log(autoLaunch
+        ? ' 稍后会用 Steam 拉起游戏（服务端同时启动）｜停止服务端：输入 stop 回车（或 Ctrl+C）'
+        : ' 请手动在 Steam 里启动《失乐星图》｜停止服务端：输入 stop 回车（或 Ctrl+C）');
+      console.log(' 游戏登录界面随便填账号和密码，点「注册」进主城 ｜ 存档在 server\\data\\');
+    } else {
+      console.log(autoLaunch
+        ? ' 接下来会用 Steam 拉起游戏（服务端同时启动），稍等几秒即可看到游戏窗口。'
+        : ' 请在 Steam 里手动启动《失乐星图》。');
+      console.log(' 游戏登录界面随便填账号和密码，点「注册」就能进主城。');
+      console.log(' 停止服务请在本窗口输入 stop 回车（或按 Ctrl+C）。');
+      console.log(' 存档在 server\\data\\，删掉它就能重置；');
+      console.log(' 想找回旧存档：在本窗口输入 load <备份目录>（见 README）。');
+    }
     line('=');
   } else {
     console.log(' 接下来启动服务端：cd server 后 npm start，或直接双击根目录的「点我启动.bat」。');
@@ -726,4 +775,7 @@ module.exports = {
   // 环境自查（--check）：sourceLooksFixed 用来判断「这份 setup.js 是不是修好的」
   sourceLooksFixed,
   collectDoctorReport,
+  depsPresent,
+  clientFilesCurrent,
+  shouldCompactStartup,
 };

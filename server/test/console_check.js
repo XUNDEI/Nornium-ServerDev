@@ -95,9 +95,13 @@ function makeBackup(dir, { accountId, accountName, extraPlayers = [] }) {
       'help lists restore / load / stop');
     check(/load <备份目录>/.test(help.reply), 'help documents the optional backup-directory argument');
     check(help.action === 'none', 'help does not stop the server');
+    check(help.reply.includes(require('../package.json').homepage),
+      'help shows the project homepage (so a stuck user can find the repo)');
 
     const status = await handleCommand('status');
     check(/在线/.test(status.reply) && /存档/.test(status.reply), 'status reports sessions and saves');
+    check(/项目主页/.test(status.reply) && status.reply.includes(require('../package.json').homepage),
+      'status also surfaces the project homepage');
 
     const bogus = await handleCommand('nuke');
     check(/未知指令/.test(bogus.reply) && bogus.action === 'none',
@@ -308,6 +312,49 @@ function makeBackup(dir, { accountId, accountName, extraPlayers = [] }) {
     // 4) all = 全部玩家档案
     const all = await handleCommand('allweapons all');
     check(/发出 \d+ 把/.test(all.reply), 'allweapons all reports per-account grants');
+  }
+
+  // ---------------- allexclusive（每人一把 7★ 专武） ----------------
+  {
+    const gd = require('../src/gamedata');
+    const weaponData = require('../src/game/weapon_data');
+
+    // 测试自己算期望值：映射表里全部已实装的 7★ 形态
+    const expected = Object.values(weaponData.CHARACTER_EXCLUSIVE_WEAPONS)
+      .map((e) => Number(e.seven))
+      .filter((id) => weaponData.isReleasedWeapon(id))
+      .sort((a, b) => a - b);
+
+    // 1) 账号名写错 → 明确报错
+    const bad = await handleCommand('allexclusive no-such-account');
+    check(/没有叫/.test(bad.reply), 'allexclusive with an unknown account name is rejected');
+
+    // 2) 按账号 ID 发放：十把 7★ 专武各一把（该档在前面的 allweapons 段已拿到过
+    //    同 id 的武器，所以按「新增实例」统计）
+    const countEx = (d) => d.bag.items.filter((it) => expected.includes(Number(it.item_id))).length;
+    const beforeEx = countEx(store.loadPlayer(1));
+    const res = await handleCommand('allexclusive 1');
+    check(res.action === 'none', 'allexclusive keeps the server running');
+    const doc = store.loadPlayer(1);
+    check(countEx(doc) === beforeEx + expected.length,
+      `every character's 7★ exclusive weapon granted once more (+${countEx(doc) - beforeEx}/${expected.length})`);
+    const exWeapons = doc.bag.items.filter((it) => expected.includes(Number(it.item_id)));
+    check(exWeapons.every((w) => Number(gd.query('d_bag_item_weapon', w.item_id).rarity) === 7),
+      'allexclusive grants only 7★ weapons');
+    check(!exWeapons.some((w) => weaponData.isUnreleasedWeapon(w.item_id)),
+      'allexclusive never grants an unreleased weapon');
+    const before = doc.bag.items.filter((it) => it.weapon_info).length;
+
+    // 3) 回归：旧版把辩才姬（10701）指到信风的 1071611 —— 专武清单必须包含她的
+    //    1060611（蛇毒聚流）与 10102 的 2051611（最初的蒸发）
+    const ids = exWeapons.map((w) => Number(w.item_id));
+    check(ids.includes(1060611) && ids.includes(2051611) && ids.includes(7070611),
+      'allexclusive covers the corrected 10102/10701/10801 exclusives');
+    // 控制台发放没有 skipOwned 语义（每次全量入包），重复执行总量按一份专武递增
+    await handleCommand('allexclusive 1');
+    const doc2 = store.loadPlayer(1);
+    check(doc2.bag.items.filter((it) => it.weapon_info).length === before + expected.length,
+      'repeat run adds another full set (console grant has no skip_owned)');
   }
 
   // ---------------- stop ----------------

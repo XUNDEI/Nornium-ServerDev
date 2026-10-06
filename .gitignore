@@ -13,6 +13,10 @@ server/logs_stdout.txt
 server/runtime-config.json
 server/auto-launch.flag
 
+# 启动器 Mod 仓库（玩家/社区内容，不入库；目录由启动器自动创建）
+server/mods/
+!server/mods/.gitkeep
+
 # Temporary / atomic-write leftovers
 *.tmp
 *.log

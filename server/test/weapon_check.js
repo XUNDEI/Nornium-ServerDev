@@ -4,7 +4,12 @@
 //   ③ 老存档 item_uuid 重复的去重迁移；
 //   ④ 「装错武器类型的角色」的迁移修复（莎乐美那把枪，见坑 37）；
 //   ⑤ 「未实装武器」（客户端没有模型/图标/技能行的幽灵武器，如 1081601 颂歌）：
-//      发放清单不含它们、推荐武器不指向它们、存档里已有的原地换掉（见坑 38）。
+//      发放清单不含它们、专武映射不指向它们、存档里已有的原地换掉（见坑 38）。
+//   ⑥ 「角色 → 7★ 专武」官方映射（weapon_data.js 的 CHARACTER_EXCLUSIVE_WEAPONS）：
+//      十人逐一断言 + 专武发放/跳过已拥有。
+//   ⑦ 光淬 req_weapon_refine：ntf_item_info 先于 res（效果变动弹窗靠它读新阶数）、
+//      repeated 素材逐个扣除并 count=-1 同步客户端、maxRefine 到顶拒绝；
+//      严格校验：无素材/非同族/锁定素材/金币不足整单拒绝（result=4），合法才升阶扣料扣费。
 // 必须在 require 服务端模块之前设好 GHS_DATA_DIR：store.js 在加载时读它，
 // 否则 savePlayer 会写进真实的 server/data/（坑 35）。
 const os = require('os');
@@ -38,7 +43,7 @@ const SALOME = 10201;
 const SALOME_WEAPON_TYPE = 5;
 const GUN = 2020400;        // 枪械（subType 4），4★
 const SACRED_LOW = 4011300; // 礼器（subType 5），3★
-const SACRED_TOP = 4072601; // 礼器（subType 5），6★  —— 莎乐美的专武档位
+const SACRED_TOP = 4072601; // 礼器（subType 5），6★  —— 莎乐美专武族的特殊 6★ 变体（梦魇之灯）
 
 // ---------------- ① 表一致性 ----------------
 check(items.characterWeaponType(SALOME) === SALOME_WEAPON_TYPE,
@@ -244,16 +249,65 @@ check(weaponData.isReleasedWeapon(GIANT_OK_7) && weaponData.isReleasedWeapon(GIA
   check(bad.length === 0, `黑名单外的武器技能行都齐全${bad.length ? ' 例外: ' + bad.join(',') : ''}`);
 }
 {
-  // 任何角色的「推荐武器」都不能是未实装武器（巨刃以前正好踩中 1081601）
+  // 专武映射：每名可玩角色一把 7★ 专武（映射与四条证据见 weapon_data.js 的注释）。
+  // 旧版按「同类型最高稀有度」猜，会把 10102/10601 都指到 2061610、10501/10701 都指到
+  // 1071611 —— 其中辩才姬（10701）被指到信风的武器上，是玩家实测报错的那类问题。
+  const EXPECTED = {
+    10101: 3060611, // 阿特拉斯™眩光
+    10102: 2051611, // 最初的蒸发
+    10201: 4071611, // 总控者的视觉
+    10301: 5071611, // 染掌之影
+    10401: 6061611, // 羚辉之辉
+    10501: 1071611, // 灼星已现
+    10601: 2041611, // 雨后青鸟
+    10701: 1060611, // 蛇毒聚流
+    10801: 7070611, // 仁剑<红天>
+    11202: 7081611, // 断线者
+  };
   const bad = [];
-  for (const [, row] of gd.rows('d_character')) {
-    if (!row.firstWeapon) continue;
-    const pick = arsenal.bestWeaponForCharacter(row.id);
-    if (pick && !weaponData.isReleasedWeapon(pick)) bad.push(`${row.id}->${pick}`);
+  for (const [charId, weaponId] of Object.entries(EXPECTED)) {
+    const got = arsenal.exclusiveWeaponForCharacter(Number(charId));
+    if (got !== weaponId) bad.push(`${charId}→${got}(期望 ${weaponId})`);
+    const w = gd.query('d_bag_item_weapon', weaponId);
+    if (!w || Number(w.rarity) !== 7) bad.push(`${weaponId} 不是 7★`);
+    const prof = Number(gd.query('d_character', charId).profession);
+    if (Number(w.subType) !== prof) bad.push(`${weaponId} 类型 ${w.subType} ≠ 角色 ${charId} 的 ${prof}`);
+    if (!weaponData.isReleasedWeapon(weaponId)) bad.push(`${weaponId} 未实装`);
   }
-  check(bad.length === 0, `bestWeaponForCharacter 从不返回未实装武器${bad.length ? ' 例外: ' + bad.join('; ') : ''}`);
-  check(arsenal.bestWeaponForCharacter(GIANT_CHAR) === GIANT_OK_7,
-    `巨刃角色改推荐 ${GIANT_OK_7}（实得 ${arsenal.bestWeaponForCharacter(GIANT_CHAR)}）`);
+  check(bad.length === 0, `十人专武映射逐一吻合且全部已实装 7★${bad.length ? ' 例外: ' + bad.join('; ') : ''}`);
+  check(arsenal.exclusiveWeaponForCharacter(10901) === 0
+    && arsenal.exclusiveWeaponForCharacter(99999) === 0,
+    '映射外角色（profession=0 / 不存在）返回 0');
+}
+{
+  // 映射表本体：10 条、base（6★）与 seven（7★）同族（id 前 3 位）且全部已实装
+  const mapping = weaponData.CHARACTER_EXCLUSIVE_WEAPONS;
+  const bad = [];
+  for (const [charId, e] of Object.entries(mapping)) {
+    if (Math.floor(e.base / 10000) !== Math.floor(e.seven / 10000)) bad.push(`${charId} base/seven 不同族`);
+    if (!weaponData.isReleasedWeapon(e.base) || !weaponData.isReleasedWeapon(e.seven)) {
+      bad.push(`${charId} 有形态未实装`);
+    }
+    if (arsenal.exclusiveWeaponBaseForCharacter(charId) !== e.base) bad.push(`${charId} base 查询不符`);
+  }
+  check(Object.keys(mapping).length === 10 && bad.length === 0,
+    `映射表 10 条、6★/7★ 同族且全部已实装${bad.length ? ' 例外: ' + bad.join('; ') : ''}`);
+}
+{
+  // 专武发放：每人一把 7★ 各发一次，skipOwned 幂等，且是高稀有度清单的子集
+  const ids = arsenal.exclusiveWeaponIds();
+  check(ids.length === 10, `专武发放清单 10 把（实得 ${ids.length}）`);
+  check(ids.every((id) => Number(gd.query('d_bag_item_weapon', id).rarity) === 7), '专武清单全部 7★');
+  const all = arsenal.highRarityWeaponIds();
+  check(ids.every((id) => all.includes(id)), '专武清单 ⊆ 高稀有度清单');
+  check(!ids.includes(GHOST) && !ids.includes(GHOST_6), '专武清单里没有未实装武器');
+  const doc = createPlayerDoc(9108);
+  const { granted } = arsenal.grantExclusiveWeapons(doc);
+  check(granted.length === 10
+    && doc.bag.items.filter((it) => it.weapon_info).length === 10,
+  'grantExclusiveWeapons 每人各发一把');
+  const { granted: again } = arsenal.grantExclusiveWeapons(doc, { skipOwned: true });
+  check(again.length === 0, '专武 skipOwned 时不会重复发放');
 }
 {
   // 发放清单：每种已实装的 6★/7★ 各一把，且不含任何未实装武器
@@ -304,6 +358,148 @@ check(weaponData.isReleasedWeapon(GIANT_OK_7) && weaponData.isReleasedWeapon(GIA
   // 不误伤：全是没有幽灵武器的正常存档
   const doc = createPlayerDoc(9108);
   check(migratePlayer(doc) === false, '不含未实装武器的存档迁移不做任何修复');
+}
+
+// ---------------- ⑦ 光淬（req_weapon_refine）----------------
+{
+  // 背包武器升阶：ntf_item_info（带新阶数）必须先于 res_weapon_refine 到达 ——
+  // 客户端的效果变动弹窗在 res 广播瞬间从背包缓存读 refine_level，背包缓存只随
+  // ntf_item_info 更新，顺序反了就是「光淬0阶 → 光淬0阶」。
+  // 素材必须是 d_weapon.refinedWeapon 同族（4072601 的族 = [4072601, 4070601]），
+  // 并扣 refinedCost 金星贝（9001）。
+  const SACRED_STUFF = 4070601; // 莎乐美专武族的 6★ 本体（refinedWeapon 同族素材）
+  const s = makeSession();
+  const gear = items.makeItem(s.player, SACRED_TOP, 1);
+  s.player.bag.items.push(gear);
+  const stuff = items.makeItem(s.player, SACRED_STUFF, 1);
+  s.player.bag.items.push(stuff);
+  const goldBefore = items.bagCount(s.player, 9001);
+  charH.reqWeaponRefine(s, { item_uuid: gear.item_uuid, stuff_item_uuid: [stuff.item_uuid] });
+  const ntfIdx = s.sent.findIndex((x) => x.name === 'ntf_item_info');
+  const resIdx = s.sent.findIndex((x) => x.name === 'res_weapon_refine');
+  check(ntfIdx >= 0 && resIdx >= 0 && ntfIdx < resIdx, '先推 ntf_item_info 再回 res_weapon_refine');
+  check(last(s, 'res_weapon_refine').result === undefined, '同族素材 + 金币充足 -> OK');
+  check(gear.weapon_info.refine_level === 1, 'refine_level +1');
+  const changed = s.sent[ntfIdx].msg.changed_item_infos;
+  const target = changed.find((c) => String(c.item_uuid) === String(gear.item_uuid));
+  check(target && target.count === 0 && target.weapon_info === gear.weapon_info,
+    '目标武器 count=0 + 完整 weapon_info（命中客户端「整条替换」分支）');
+  const eaten = changed.find((c) => String(c.item_uuid) === String(stuff.item_uuid));
+  check(eaten && eaten.count === -1, '被吃的素材以 count=-1 推给客户端');
+  check(!s.player.bag.items.some((it) => String(it.item_uuid) === String(stuff.item_uuid)),
+    '素材已从服务端背包扣除');
+  check(items.bagCount(s.player, 9001) === goldBefore - 5000,
+    `refinedCost 5000 金星贝已扣除（${goldBefore} -> ${items.bagCount(s.player, 9001)}）`);
+}
+{
+  // 多素材：repeated stuff_item_uuid 逐个扣除（旧实现 Number(array) 多选时为 NaN）
+  const SACRED_STUFF = 4070601;
+  const s = makeSession();
+  const gear = items.makeItem(s.player, SACRED_TOP, 1);
+  const stuffA = items.makeItem(s.player, SACRED_STUFF, 1);
+  const stuffB = items.makeItem(s.player, SACRED_STUFF, 1);
+  s.player.bag.items.push(gear, stuffA, stuffB);
+  charH.reqWeaponRefine(s, {
+    item_uuid: gear.item_uuid,
+    stuff_item_uuid: [stuffA.item_uuid, stuffB.item_uuid],
+  });
+  check(last(s, 'res_weapon_refine').result === undefined, '多素材全部同族 -> OK');
+  const changed = last(s, 'ntf_item_info').msg.changed_item_infos;
+  const eaten = changed.filter((c) => c.count === -1);
+  check(eaten.length === 2
+    && eaten.some((c) => String(c.item_uuid) === String(stuffA.item_uuid))
+    && eaten.some((c) => String(c.item_uuid) === String(stuffB.item_uuid)),
+    '两个素材各有一条 count=-1');
+  check(s.player.bag.items.some((it) => String(it.item_uuid) === String(gear.item_uuid)),
+    '目标武器还在背包');
+  check(!s.player.bag.items.some((it) => String(it.item_uuid) === String(stuffA.item_uuid))
+    && !s.player.bag.items.some((it) => String(it.item_uuid) === String(stuffB.item_uuid)),
+    '两个素材都已从背包扣除');
+}
+{
+  // 已装备的武器同样要能升阶（findGearByUuid 落在角色身上）；
+  // 莎乐美初始武器 4010100 的同族素材还是 4010100。
+  const s = makeSession();
+  s.player.characters.push(buildCharacter(s.player, SALOME));
+  const c = charOf(s, SALOME);
+  const stuff = items.makeItem(s.player, 4010100, 1);
+  s.player.bag.items.push(stuff);
+  charH.reqWeaponRefine(s, { item_uuid: c.weapon_info.item_uuid, stuff_item_uuid: [stuff.item_uuid] });
+  check(last(s, 'res_weapon_refine').result === undefined, '已装备武器 + 同族素材 -> OK');
+  check(c.weapon_info.weapon_info.refine_level === 1, '已装备武器 refine_level +1');
+  const changed = last(s, 'ntf_item_info').msg.changed_item_infos;
+  check(changed.some((x) => x.count === 0 && x.weapon_info === c.weapon_info.weapon_info),
+    '已装备武器走同一份 count=0 + weapon_info 载荷（客户端 item_extra 分支原地刷新）');
+  check(!s.player.bag.items.some((it) => String(it.item_uuid) === String(stuff.item_uuid)),
+    '素材从背包扣除，已装备的目标本身不受影响');
+}
+{
+  // 严格校验：空素材 -> STUFF_NOT_ENOUGH(4)，白嫖升阶被堵死
+  const s = makeSession();
+  const gear = items.makeItem(s.player, SACRED_TOP, 1);
+  s.player.bag.items.push(gear);
+  charH.reqWeaponRefine(s, { item_uuid: gear.item_uuid, stuff_item_uuid: [] });
+  check(last(s, 'res_weapon_refine').result === 4, '无素材 -> STUFF_NOT_ENOUGH(4)');
+  check(gear.weapon_info.refine_level === 0, '拒绝后 refine_level 不变');
+  check(!s.sent.some((x) => x.name === 'ntf_item_info'), '拒绝不推任何 ntf');
+  check(items.bagCount(s.player, 9001) === 1200000, '拒绝不扣金币');
+}
+{
+  // 严格校验：素材不在 refinedWeapon 同族 -> 拒绝（4011300 不是 4072601 的族）
+  const s = makeSession();
+  const gear = items.makeItem(s.player, SACRED_TOP, 1);
+  const stuff = items.makeItem(s.player, SACRED_LOW, 1);
+  s.player.bag.items.push(gear, stuff);
+  charH.reqWeaponRefine(s, { item_uuid: gear.item_uuid, stuff_item_uuid: [stuff.item_uuid] });
+  check(last(s, 'res_weapon_refine').result === 4, '非同族素材 -> STUFF_NOT_ENOUGH(4)');
+  check(gear.weapon_info.refine_level === 0, '拒绝后 refine_level 不变');
+  check(s.player.bag.items.some((it) => String(it.item_uuid) === String(stuff.item_uuid)),
+    '拒绝后素材仍留在背包（没有被吞掉）');
+  check(items.bagCount(s.player, 9001) === 1200000, '拒绝不扣金币');
+}
+{
+  // 严格校验：锁定素材 -> 拒绝
+  const SACRED_STUFF = 4070601;
+  const s = makeSession();
+  const gear = items.makeItem(s.player, SACRED_TOP, 1);
+  const stuff = items.makeItem(s.player, SACRED_STUFF, 1);
+  stuff.weapon_info.locked = true;
+  s.player.bag.items.push(gear, stuff);
+  charH.reqWeaponRefine(s, { item_uuid: gear.item_uuid, stuff_item_uuid: [stuff.item_uuid] });
+  check(last(s, 'res_weapon_refine').result === 4, '锁定素材 -> STUFF_NOT_ENOUGH(4)');
+  check(s.player.bag.items.some((it) => String(it.item_uuid) === String(stuff.item_uuid)),
+    '拒绝后锁定素材仍留在背包');
+}
+{
+  // 严格校验：金星贝不足 -> 拒绝（refinedCost=5000）
+  const SACRED_STUFF = 4070601;
+  const s = makeSession();
+  const gear = items.makeItem(s.player, SACRED_TOP, 1);
+  const stuff = items.makeItem(s.player, SACRED_STUFF, 1);
+  s.player.bag.items.push(gear, stuff);
+  s.player.bag.items.find((it) => it.item_id === 9001).count = 4999;
+  charH.reqWeaponRefine(s, { item_uuid: gear.item_uuid, stuff_item_uuid: [stuff.item_uuid] });
+  check(last(s, 'res_weapon_refine').result === 4, '金币不足 -> STUFF_NOT_ENOUGH(4)');
+  check(gear.weapon_info.refine_level === 0, '拒绝后 refine_level 不变');
+  check(s.player.bag.items.some((it) => String(it.item_uuid) === String(stuff.item_uuid)),
+    '拒绝后素材仍留在背包');
+}
+{
+  // 到顶拒绝：d_weapon.maxRefine=4，超顶后客户端查 d_skill_fight_level 会落空
+  const s = makeSession();
+  const gear = items.makeItem(s.player, SACRED_TOP, 1);
+  gear.weapon_info.refine_level = 4;
+  s.player.bag.items.push(gear);
+  charH.reqWeaponRefine(s, { item_uuid: gear.item_uuid, stuff_item_uuid: [] });
+  check(last(s, 'res_weapon_refine').result === 3, '光淬已达 maxRefine -> 拒绝（result=3）');
+  check(gear.weapon_info.refine_level === 4, '到顶后 refine_level 不再上涨');
+  check(!s.sent.some((x) => x.name === 'ntf_item_info'), '到顶拒绝不推任何 ntf');
+}
+{
+  // 未知 uuid：沿用旧约定的 result=1，不崩
+  const s = makeSession();
+  charH.reqWeaponRefine(s, { item_uuid: 987654321, stuff_item_uuid: [] });
+  check(last(s, 'res_weapon_refine').result === 1, '未知武器 uuid -> result=1');
 }
 
 fs.rmSync(tmpDataDir, { recursive: true, force: true });

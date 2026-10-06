@@ -2,6 +2,7 @@
 // Unknown req_* get an empty res_* (when one exists) so the client's
 // serial-wait queue never stalls.
 const log = require('../logger');
+const activity = require('../activity');
 const login = require('./login');
 const sync = require('./sync');
 const character = require('./character');
@@ -62,7 +63,11 @@ const handlers = {
 };
 
 async function dispatch(session, name, msg) {
-  log.info(`[recv] ${name}`);
+  // 逐条请求名不进 info：心跳（req_ping）与登录后的批量同步会刷屏，实测占了
+  // 日志的一半以上。明细留给 GHS_VERBOSE=1，常态由 activity 每 5 分钟汇总一行；
+  // 真正有意义的动作各自在 handler 里打日志（[login]/[character]/[universe]…）。
+  activity.noteRecv(name);
+  log.verbose(`[recv] ${name}`);
   log.verbose('[recv payload]', msg || {});
   try {
     const h = handlers[name] || universeHandle(name) || gachaHandle(name)

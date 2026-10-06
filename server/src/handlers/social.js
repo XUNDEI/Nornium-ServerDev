@@ -237,7 +237,8 @@ function handleGmCmd(session, req) {
   log.info('[gm]', cmd);
   // minimal GM surface: "add_item <id> <count>", "add_character <id>",
   // "add_card <cardId> <count>"（add_card 进的是**当前远航**的建筑蓝图手牌，
-  // 不是背包——蓝图只活在星图里，所以卡死时没法用 add_item 救）
+  // 不是背包——蓝图只活在星图里，所以卡死时没法用 add_item 救）、
+  // "add_res <1..4> <count>"（当前远航的肉鸽资源 res_value，可给负数扣减）
   const parts = cmd.trim().split(/\s+/);
   if (parts[0] === 'add_item' && parts.length >= 3) {
     const ntf = items.grantItems(session.player, [
@@ -255,6 +256,21 @@ function handleGmCmd(session, req) {
       savePlayer(session);
     } else {
       log.info('[gm] add_card 失败：没有进行中的远航或卡牌 id 无效', cardId);
+    }
+  } else if (parts[0] === 'add_res' && parts.length >= 3) {
+    // 当前远航的肉鸽资源（res_value 1..4），负数即扣减。客户端的本地副本靠
+    // ntf_universe_info 的增量数组更新，所以必须推这条消息。
+    const type = Number(parts[1]);
+    const delta = Number(parts[2]);
+    const u = session.player.universe;
+    if (u && u.active && type >= 1 && type <= 4 && Number.isFinite(delta) && delta !== 0) {
+      universe.changeResource(u, type, Math.trunc(delta));
+      session.send('ntf_universe_info', {
+        res_value: universe.resourceDeltas(u, { [type]: Math.trunc(delta) }),
+      });
+      savePlayer(session);
+    } else {
+      log.info('[gm] add_res 失败：没有进行中的远航，或参数不是 1..4 的资源号与非零数量');
     }
   } else if (parts[0] === 'add_character' && parts.length >= 2) {
     const { buildCharacter } = require('../game/player_new');

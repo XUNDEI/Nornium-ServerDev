@@ -419,17 +419,59 @@ function reqArmLevelBreak(session, req) {
   savePlayer(session);
 }
 
+// 光淬（精炼）。效果变动弹窗在 res 到达瞬间从背包缓存读「新阶数」（UI_Weapon_Refined_C
+// 的 OnMsg_Req_Strengthen_Weapon_Success），而客户端对 res_weapon_refine 本身不解析任何
+// 数据、也不像升级那样本地预测结果 —— 背包缓存只随 ntf_item_info 更新。所以必须
+// **先推 ntf 再回 res**，顺序反了弹窗就会显示「光淬0阶 → 光淬0阶」（新旧同值）。
 function reqWeaponRefine(session, req) {
   if (!requirePlayer(session)) return;
   const gear = findGearByUuid(session, Number(req.item_uuid ?? 0));
   if (!gear || !gear.weapon_info) return session.send('res_weapon_refine', {}, 1);
-  gear.weapon_info.refine_level += 1;
-  const stuff = findGearByUuid(session, Number(req.stuff_item_uuid ?? 0));
-  if (stuff) {
-    if (session.player.bag.items.includes(stuff)) {
-      session.player.bag.items.splice(session.player.bag.items.indexOf(stuff), 1);
-    }
+  const weaponCfg = gd.query('d_weapon', gear.item_id) || {};
+  const maxRefine = weaponCfg.maxRefine ?? 4;
+  if (gear.weapon_info.refine_level >= maxRefine) return session.send('res_weapon_refine', {}, 3);
+
+  // stuff_item_uuid 是 repeated 字段：遍历逐个解析（Number(array) 只对单元素碰巧可用，
+  // 多选素材会得到 NaN）。先校验后应用，任何一项不过就整单拒绝、不产生状态变更。
+  const stuffUuids = Array.isArray(req.stuff_item_uuid)
+    ? req.stuff_item_uuid
+    : (req.stuff_item_uuid != null ? [req.stuff_item_uuid] : []);
+  const family = Array.isArray(weaponCfg.refinedWeapon) ? weaponCfg.refinedWeapon : [gear.item_id];
+  const stuffs = [];
+  for (const raw of stuffUuids) {
+    const stuff = findGearByUuid(session, Number(raw ?? 0));
+    if (!stuff || stuff === gear) continue; // 目标自己/已装备同件武器：不是素材，静默跳过
+    const ok = session.player.bag.items.includes(stuff)
+      && !!stuff.weapon_info
+      && family.includes(stuff.item_id)
+      && !stuff.weapon_info.locked;
+    if (!ok) return session.send('res_weapon_refine', {}, 4); // STUFF_NOT_ENOUGH
+    stuffs.push(stuff);
   }
+  if (!stuffs.length) return session.send('res_weapon_refine', {}, 4);
+
+  const cost = Number(weaponCfg.refinedCost) || 0;
+  const ntfCost = cost > 0
+    ? items.consumeItems(session.player, [{ item_id: 9001, count: cost }])
+    : { changed_item_infos: [] };
+  if (!ntfCost) return session.send('res_weapon_refine', {}, 4);
+
+  gear.weapon_info.refine_level += 1;
+  // count=0 才命中客户端背包的「整条替换」分支（BackpackSystem.lua:384），count 非 0
+  // 会被当成数量增量；已装备的武器则走 item_extra=='weapon_info' 分支原地刷新（:354）。
+  const changed = [{
+    item_id: gear.item_id,
+    count: 0,
+    item_uuid: String(gear.item_uuid),
+    weapon_info: gear.weapon_info,
+  }];
+  // 素材的扣除没有任何本地预测（CachedStuffItemUuid 缓存后从未被消费），
+  // 必须以 count=-1 推给客户端，背包里被吃的武器才即时消失。
+  for (const stuff of stuffs) {
+    session.player.bag.items.splice(session.player.bag.items.indexOf(stuff), 1);
+    changed.push({ item_id: stuff.item_id, count: -1, item_uuid: String(stuff.item_uuid) });
+  }
+  session.send('ntf_item_info', { changed_item_infos: [...changed, ...ntfCost.changed_item_infos] });
   session.send('res_weapon_refine', { item_infos: [gearToStuff(gear)] });
   savePlayer(session);
 }

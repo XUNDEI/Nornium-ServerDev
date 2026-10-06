@@ -1,4 +1,6 @@
 // Universe (Srpg roguelike) message handlers.
+const fs = require('fs');
+const path = require('path');
 const gd = require('../gamedata');
 const items = require('../game/items');
 const U = require('../game/universe');
@@ -47,6 +49,77 @@ function sendUniverseInfo(session, u, resChanges, hpDelta) {
     res_value: U.resourceDeltas(u, resChanges),
     cur_hp: hpDelta || undefined,
   });
+}
+
+// ---- 星图资源自动补发（私服便利功能） ----
+//
+// 肉鸽资源（res_value 4 元）在切角色（substitutionCost）、游商买/刷新、晋升/召回、
+// 三选一重掷时被扣。客户端先用**本地**资源副本决定按钮可不可点，本地不够时请求根本
+// 不会发出来，所以"扣费失败再补"永远轮不到——必须主动把补发增量通过 ntf_universe_info
+// 推过去，客户端的本地副本才会涨。默认开：任何一次消耗后低于保底线就补到保底线，
+// 低于本次费用则先补足本次费用再扣（切换/购买不再弹 code:4）。
+// 关闭/调整：runtime-config.json 里加 "universe_auto_grant": false
+// 或 "universe_resource_floor": <数值>（默认 100，与开局资源一致）。
+const RUNTIME_CONFIG_FILE = process.env.GHS_RUNTIME_CONFIG
+  || path.join(__dirname, '..', 'runtime-config.json');
+
+function grantCfg() {
+  // 测试注入口：GHS_UNIVERSE_GRANT={"on":true,"floor":100} 时优先于配置文件，
+  // 让回归不依赖开发机的 runtime-config.json。
+  if (process.env.GHS_UNIVERSE_GRANT) {
+    try {
+      const v = JSON.parse(process.env.GHS_UNIVERSE_GRANT);
+      if (v && typeof v === 'object') {
+        return { on: v.on !== false, floor: Math.max(0, Math.trunc(Number(v.floor ?? 100)) || 0) };
+      }
+    } catch (_) { /* 非法内容走默认 */ }
+  }
+  try {
+    const cfg = JSON.parse(fs.readFileSync(RUNTIME_CONFIG_FILE, 'utf8'));
+    const off = cfg.universe_auto_grant === false || cfg.universe_auto_grant === 0
+      || cfg.universe_auto_grant === 'false' || cfg.universe_auto_grant === '0';
+    const floor = Math.max(0, Math.trunc(Number(cfg.universe_resource_floor ?? 100)) || 0);
+    return { on: !off, floor };
+  } catch (_) { /* 没有配置文件时走默认 */ }
+  return { on: true, floor: 100 };
+}
+
+// 编辑器「资源自动补发」开关的写入口：把 universe_auto_grant / universe_resource_floor
+// 合并进 runtime-config.json（保留其余键）。grantCfg 在每次消耗时重读文件，
+// 所以改完立刻生效，无需重启。返回与 grantCfg 相同形状的生效状态。
+function setGrantConfig({ enabled, floor } = {}) {
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(RUNTIME_CONFIG_FILE, 'utf8')); } catch (_) { /* 没有就新建 */ }
+  if (enabled !== undefined) cfg.universe_auto_grant = !!enabled;
+  if (floor !== undefined) cfg.universe_resource_floor = Math.max(0, Math.trunc(Number(floor)) || 0);
+  fs.writeFileSync(RUNTIME_CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n');
+  const state = grantCfg();
+  log.info(`[editor] 资源自动补发 → ${state.on ? '开' : '关'}（保底线 ${state.floor}）`);
+  return state;
+}
+
+// 把资源 type 补到 max(floor, keep)（keep 用于"不够本次费用"的场景）。
+// 有实际补发时推一条 ntf_universe_info（增量语义，客户端本地累加）。返回补发量。
+function topUpRes(session, u, type, keep = 0) {
+  const { on, floor } = grantCfg();
+  if (!on) return 0;
+  const target = Math.max(floor, keep);
+  const cur = u.res_value[type] ?? 0;
+  if (cur >= target) return 0;
+  U.changeResource(u, type, target - cur);
+  sendUniverseInfo(session, u, { [type]: target - cur }, 0);
+  return target - cur;
+}
+
+// spendResource 的会话感知版：消耗一份资源；自动补发开启时保证这次消耗能付得起，
+// 扣完低于保底线再补回。所有星图资源消耗点一律走这里，不要直接调 U.spendResource。
+function spendRes(session, u, type, amount) {
+  if (!U.spendResource(u, type, amount)) {
+    topUpRes(session, u, type, amount);
+    if (!U.spendResource(u, type, amount)) return false;
+  }
+  topUpRes(session, u, type);
+  return true;
 }
 
 function rewardWindow(session, triggerId, fn) {
@@ -105,11 +178,11 @@ function levelTriggerIds(levelId, win) {
 
 // 依次执行一组效果；返回是否有任何一个真的产生了效果（供调用方决定要不要走兜底）。
 // 效果可能直接把这一局打结束（生存值归零 → settleRun），所以每一步后都要重新取局。
-function applyEffects(session, u, triggerIds) {
+function applyEffects(session, u, triggerIds, pos = null) {
   let handled = false;
   for (const tid of triggerIds) {
     if (!session.player.universe) break;
-    if (applyEffect(session, u, tid)) handled = true;
+    if (applyEffect(session, u, tid, pos)) handled = true;
   }
   return handled;
 }
@@ -144,10 +217,15 @@ function triggerFor(kind, levelId, win) {
 //   99  终点/剧情收尾  effectConfig/effectDisplay = [10]（SpecialDisplay.SetAbort）；
 //                     踩到「终点」格（d_srpg_main_pos_base 99999）时用它的 effectDisplay
 //                     让客户端把 EndReason 改判为 Abort → 结束航行（见下方 case 99）
-// 其余（9/10/17/21/100/121/122）语义未确认，只记日志不处理；其中 121/122 是卡位标记
-// （effectConfig 就是 d_srpg_card_pos 的行号），而格子类型已经由 attachForPos 按
-// d_srpg_main_pos_base 判定，不需要它。
-function applyEffect(session, u, triggerId) {
+//  122 追加建筑卡位   effectConfig = [d_srpg_card_pos 行号]：探索「额外建筑格」
+//                     （B01_Nothing，nameId 11310104，图 3~7 每图 6 个）时把该格
+//                     变成可用卡位 ——「提供额外的可用建筑格！」。只在探索路径生效
+//                     （applyEffect 的 pos 参数），经 ntf_main_pos_add_attach 下发
+//                     （客户端 SrpgController.lua:279 把 attach 追加进格子）
+// 其余（9/10/17/21/100/121）语义未确认，只记日志不处理。121 只出现在游商格
+// （701..706）的探索效果里、effectConfig 取值 1..6，而 d_srpg_card_pos 只有 3 行，
+// 「卡位行号」的读法对它不成立；游商格已由 attachForPos 按 posModel 挂上商店。
+function applyEffect(session, u, triggerId, pos = null) {
   const cfg = gd.query('d_srpg_effect_trigger', triggerId);
   if (!cfg) return false;
   const conf = U.intArray(cfg.effectConfig);
@@ -234,6 +312,20 @@ function applyEffect(session, u, triggerId) {
     case 201: // 剧情：客户端在 ntf_effect_trigger_begin 里自己播
       rewardWindow(session, triggerId, () => {});
       return true;
+    case 122: { // 追加建筑卡位（「额外建筑格」）：effectConfig[0] = d_srpg_card_pos 行号
+      // 只在探索路径有 pos；格子已有 attach（教学 102 号格开局就挂了免费召回位）
+      // 时幂等跳过，避免覆盖玩家已部署的建筑。
+      if (!pos || pos.attach) return false;
+      const slot = U.cardPosAttach(conf[0]);
+      if (!slot) return false;
+      pos.attach = slot;
+      session.send('ntf_main_pos_add_attach', {
+        hex: U.encHex(pos.hex),
+        main_pos_attach_infos: [{ main_pos_card_pos_info: { ...slot.main_pos_card_pos_info } }],
+      });
+      log.info(`[universe] 额外建筑格 ${pos.main_pos_id} 解锁卡位（d_srpg_card_pos ${slot.main_pos_card_pos_info.card_pos_id}）`);
+      return true;
+    }
     case 99: { // 终点/剧情收尾：effectDisplay 10 = SpecialDisplay.SetAbort（「结束航行」）
       // 客户端在 NTF_UNIVERSE_CLEAR 处理器里读「当前打开的 trigger」的 effectDisplay
       // 来改判 EndReason（SrpgController.lua:299-326），所以窗口必须保持打开到
@@ -403,7 +495,7 @@ function exploreConsequence(session, u, pos) {
   const posCfg = gd.query('d_srpg_main_pos_base', pos.main_pos_id);
   const triggers = [...new Set(U.intArray(posCfg && posCfg.onExploreEffectTriggerID))];
 
-  if (applyEffects(session, u, triggers)) return;
+  if (applyEffects(session, u, triggers, pos)) return;
   if (!session.player.universe) return;
 
   // fallback flavour by pos id family: minor resource pickups
@@ -647,7 +739,7 @@ function reqRefreshChooseCard(session, req) {
   const cost = pool?.refreshCost || [2, 10];
   const maxTimes = pool?.refreshTime ?? 99;
   if (sel.refresh_times >= maxTimes) return session.send('res_refresh_choose_card', {}, 4); // MAX_TIMES
-  if (!U.spendResource(u, cost[0], cost[1])) return session.send('res_refresh_choose_card', {}, 5);
+  if (!spendRes(session, u, cost[0], cost[1])) return session.send('res_refresh_choose_card', {}, 5);
   U.refreshCardSelect(u, sel);
   session.send('res_refresh_choose_card', { card_ids: sel.card_ids });
   sendUniverseInfo(session, u, { [cost[0]]: -cost[1] }, 0);
@@ -687,7 +779,7 @@ function reqUpgradeCard(session, req) {
   if (!cfg || !cfg.upgradeCard) return session.send('res_upgrade_card', {}, 7); // CARD_INVALID
   const posCfg = gd.query('d_srpg_card_pos', ca.attach.card_pos_id);
   const cost = posCfg?.upgradeCost || [2, 50];
-  if (!U.spendResource(u, cost[0], cost[1])) return session.send('res_upgrade_card', {}, 8);
+  if (!spendRes(session, u, cost[0], cost[1])) return session.send('res_upgrade_card', {}, 8);
   // consume the two hand cards (higher index first)
   for (const i of handIdx.slice().sort((a, b) => b - a)) {
     if (u.cards[i] === undefined) return session.send('res_upgrade_card', {}, 6);
@@ -715,7 +807,7 @@ function reqRecallCard(session, req) {
   if (u.cards.length >= HAND_LEN_MAX) return session.send('res_recall_card', {}, 2); // CARD_FULL
   const posCfg = gd.query('d_srpg_card_pos', ca.attach.card_pos_id);
   const cost = posCfg?.recallCost || [2, 20];
-  if (!U.spendResource(u, cost[0], cost[1])) return session.send('res_recall_card', {}, 8);
+  if (!spendRes(session, u, cost[0], cost[1])) return session.send('res_recall_card', {}, 8);
   u.cards.push(ca.attach.card_id);
   ca.attach.card_id = 0;
   ca.attach.upgrade_times = 0;
@@ -795,7 +887,7 @@ function reqRefreshChooseCurio(session, req) {
   if (sel.refresh_times >= (pool?.refreshTime ?? 99)) {
     return session.send('res_refresh_choose_curio', {}, 4);
   }
-  if (!U.spendResource(u, cost[0], cost[1])) return session.send('res_refresh_choose_curio', {}, 5);
+  if (!spendRes(session, u, cost[0], cost[1])) return session.send('res_refresh_choose_curio', {}, 5);
   U.refreshCurioSelect(u, sel);
   session.send('res_refresh_choose_curio', { curio_ids: sel.curio_ids });
   sendUniverseInfo(session, u, { [cost[0]]: -cost[1] }, 0);
@@ -844,7 +936,7 @@ function reqMainPosShopBuy(session, req) {
   if (item.sold) return session.send('res_main_pos_shop_buy', {}, 7); // ITEM_SOLD
   const cfg = gd.query('d_srpg_shop_item', item.item_id) || {};
   const cost = cfg.itemCost || [2, 30];
-  if (!U.spendResource(u, cost[0], cost[1])) return session.send('res_main_pos_shop_buy', {}, 4);
+  if (!spendRes(session, u, cost[0], cost[1])) return session.send('res_main_pos_shop_buy', {}, 4);
   item.sold = true;
   session.send('res_main_pos_shop_buy', {});
   sendUniverseInfo(session, u, { [cost[0]]: -cost[1] }, 0);
@@ -859,7 +951,7 @@ function reqMainPosShopRefresh(session, req) {
   if (!sa) return session.send('res_main_pos_shop_refresh', {}, 5);
   const cfg = gd.query('d_srpg_shop_base', sa.shop.shop_id) || {};
   const cost = cfg.refreshCost || [2, 25];
-  if (!U.spendResource(u, cost[0], cost[1])) return session.send('res_main_pos_shop_refresh', {}, 4);
+  if (!spendRes(session, u, cost[0], cost[1])) return session.send('res_main_pos_shop_refresh', {}, 4);
   const items = (cfg.itemList || []).map((sid) => ({ item_id: sid, sold: false }));
   const shuffled = items.sort(() => Math.random() - 0.5).slice(0, cfg.itemNumber ?? 4);
   sa.shop.item_infos = shuffled;
@@ -887,7 +979,8 @@ function reqUniverseChangeCharacter(session, req) {
   const cost = U.substitutionCostOf(u);
   const type = Number(cost[0]) || 0;
   const amount = Math.max(0, Number(cost[1]) || 0);
-  if (amount > 0 && (!(type >= 1 && type <= 4) || !U.spendResource(u, type, amount))) {
+  // spendRes 在自动补发开启时会先补足费用再扣——切角色不再因资源见底回 RES_NOT_ENOUGH(4)
+  if (amount > 0 && (!(type >= 1 && type <= 4) || !spendRes(session, u, type, amount))) {
     return session.send('res_universe_change_character', {}, 4); // RES_NOT_ENOUGH
   }
   u.universe_fight_data.character_fight_datas[index] = {
@@ -952,4 +1045,4 @@ function handle(name) {
   return map[name] ?? null;
 }
 
-module.exports = { handle };
+module.exports = { handle, grantCfg, setGrantConfig };

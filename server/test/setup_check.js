@@ -45,6 +45,7 @@
 //
 // No server needed: setup.js only runs its wizard under `require.main === module`.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
@@ -241,6 +242,66 @@ const inv = npmInvocation(['install']);
     'doctor: tells the user to open the very server dir the wizard installs into');
   check(rep.ready === (rep.node.ok && rep.assets.ok && (rep.code.fixed || rep.deps.ready)),
     'doctor: the verdict follows its own rule (node + assets + (fixed || deps ready))');
+}
+
+// ---------------- 输出档位：热启动不再把向导每一步都念一遍 ----------------
+{
+  const { depsPresent, clientFilesCurrent, shouldCompactStartup } = require('../setup');
+
+  const warm = { fromBat: true, cfgValid: true, clientConfigCurrent: true, depsInstalled: true };
+  check(shouldCompactStartup(warm) === true,
+    'a warm launcher start (config valid, client files current, deps installed) compacts the output');
+  for (const miss of ['fromBat', 'cfgValid', 'clientConfigCurrent', 'depsInstalled']) {
+    check(shouldCompactStartup({ ...warm, [miss]: false }) === false,
+      `...but not when ${miss} is false (first run / --reset / game update / missing deps)`);
+  }
+  check(shouldCompactStartup() === false,
+    'no arguments means no compaction (never silently shrink a first run)');
+  check(typeof depsPresent() === 'boolean', `depsPresent() answers with a boolean (${depsPresent()})`);
+
+  // clientFilesCurrent 必须与 writeClientFiles 同一判据，否则会出现「说不用写、其实要写」
+  check(clientFilesCurrent(path.join(os.tmpdir(), 'nornium-definitely-not-here')) === false,
+    'clientFilesCurrent() rejects a directory whose client files are missing');
+  let cfgSaved = null;
+  try {
+    cfgSaved = JSON.parse(fs.readFileSync(path.join(SERVER_DIR, 'runtime-config.json'), 'utf8')).saved_dir;
+  } catch (_) { /* 没有配置就跳过这一条 */ }
+  if (cfgSaved && fs.existsSync(cfgSaved)) {
+    check(clientFilesCurrent(cfgSaved) === true,
+      `clientFilesCurrent() accepts this machine's already-configured game dir (${cfgSaved})`);
+  } else {
+    console.log('  (no runtime-config.json saved_dir on this machine; the positive case was skipped)');
+  }
+
+  // 简化输出时也必须留下两个步骤标题（启动器是纯 ASCII，中文只在 Node 侧打印）
+  const setupSrc2 = fs.readFileSync(path.join(SERVER_DIR, 'setup.js'), 'utf8');
+  check(/第 1 步：初始化配置/.test(setupSrc2) && /第 2 步：启动服务端/.test(setupSrc2),
+    'the compact path still prints both step banners');
+  check(/QUIET/.test(setupSrc2) && /shouldCompactStartup\(/.test(setupSrc2),
+    'setup.js actually wires the compact-output switch in');
+}
+
+// ---------------- 项目主页：仓库地址在四个出口都能看到 ----------------
+{
+  const pkg = require('../package.json');
+  const REPO = 'https://github.com/XUNDEI/Nornium-ServerDev';
+  check(pkg.homepage === REPO, `package.json.homepage is the single source (${pkg.homepage})`);
+
+  const files = {
+    'setup.js': path.join(SERVER_DIR, 'setup.js'),
+    'index.js': path.join(SERVER_DIR, 'index.js'),
+    'src/console.js': path.join(SERVER_DIR, 'src', 'console.js'),
+    'src/editorapi.js': path.join(SERVER_DIR, 'src', 'editorapi.js'),
+  };
+  for (const [label, file] of Object.entries(files)) {
+    const src = fs.readFileSync(file, 'utf8');
+    const mentions = /package\.json/.test(src) && /homepage/.test(src);
+    const literal = src.includes(REPO);
+    check(mentions || literal, `${label} surfaces the project homepage (via package.json or literal)`);
+  }
+  const indexSrc2 = fs.readFileSync(path.join(SERVER_DIR, 'index.js'), 'utf8');
+  check(/REPO_URL/.test(indexSrc2) && /网页编辑器/.test(indexSrc2),
+    'the server banner shows both the editor URL and the repo URL');
 }
 
 console.log(failures === 0 ? '\nSETUP CHECKS PASSED' : `\n${failures} SETUP CHECKS FAILED`);

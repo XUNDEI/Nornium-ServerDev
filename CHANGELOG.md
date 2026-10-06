@@ -7,6 +7,180 @@
 
 ### Added
 
+- **「角色 → 7★ 专武」官方映射落地，专武发放全面修正**：
+  - 此前版本断言数据表里没有「角色→专武」关联，按「同类型最高稀有度」猜推荐武器 ——
+    十人里指错四个（10102/10601 都指到「游侠的准绳」2061610、10501/10701 都指到
+    「灼星已现」1071611，辩才姬因此被指到信风的武器上）。本次在数据表里找到了官方关联：
+    `d_word_cn` 的武器描述占位文本（**id = 54 + 武器id**，如「信风专武描述」「理事卿专武描述」，
+    豌豆公主的 2040601「青鸟」甚至是写好的正式文案）与 `d_character_trial.firstWeapon`
+    （试用配枪，骆十四娘直接配 7★ 7070611）；`d_gacha_schedule` 武器UP池成对出现同族
+    6★+7★ 佐证两形态同源；11202→708 族由「十族专武与十人一一对应」排除法锁定。
+    映射与证据注释见 `game/weapon_data.js` 的 `CHARACTER_EXCLUSIVE_WEAPONS`。
+  - 发放：新增 `grantExclusiveWeapons`（每人一把 7★ 专武，共 10 把）与编辑器操作
+    `grant_exclusive_weapons`、控制台指令 **`allexclusive [账号|all]`**；编辑器角色页新增
+    「发放全部专武（七星）」按钮，角色弹窗改为显示「专武：<7★ 名>（id）· 6★ 基础形态：<名>（id）」，
+    「发放专武（7★）」按钮单发。6★/7★ 数值完全相同（坑 39），7★ 是最终形态。
+  - 目录接口字段 `best_weapon` 改名 `exclusive_weapon`（7★）并新增 `exclusive_weapon_base`（6★）；
+    「同类型最高稀有度」的猜测式 `bestWeaponForCharacter` 移除。
+  - 测试：`test/weapon_check.js` 新增专武映射段（十人逐一断言、全部已实装 7★、类型匹配、
+    6★/7★ 同族）与 `grantExclusiveWeapons` 幂等段；`test/editor_check.js` 断言 catalog
+    专武值与新操作端到端；`test/editor_ui_check.js` 断言专武按钮/弹窗文案/待保存清单；
+    `test/console_check.js` 断言 `allexclusive` 指令。
+
+- **端口被占自动换随机端口（最多重试 20 次）**：TCP 8101 / HTTP 9089 任一监听失败
+  （`EADDRINUSE` 被占用，或 `EACCES` 被 winnat/Hyper-V 保留段拒绝）时，自动换随机端口
+  重试（20000–45000，避开 Windows 动态端口段），20 次全失败才带人话报错退出；
+  维护窗口重听、编辑器状态页、启动横幅都用实际端口。端口偏离默认值时自动把客户端
+  `channel.lua` 同步成实际端口（游戏重启后生效），渠道名保持原值不动。
+  测试：`test/port_retry_check.js`（`npm run test:port`）——默认端口被占两个监听都挪走 +
+  channel.lua 同步 + `ntf_msg_key`/`serverStatus` 可用；兜底范围用
+  `GHS_PORT_FLOOR/CEIL` 缩到 20 个端口并全部占满，断言进程以退出码 1 终止。
+  默认端口可用 `GHS_TCP_PORT`/`GHS_HTTP_PORT` 环境变量覆盖（测试注入口）。
+
+- **星图资源自动补发（肉鸽便利功能，解决「宇宙里切几次角色货币就不够」）**：
+  - 远航中的 4 种肉鸽资源（`res_value`）在任何消耗（切换角色 `substitutionCost`、游商
+    购买/刷新、建筑晋升/召回、卡牌/异宝三选一重掷）后低于保底线（默认 **100** = 开局资源）
+    时自动补回，低于本次费用时先补足再扣——**切角色不再弹 `cmd:1018 code:4`**。
+    补发通过 `ntf_universe_info` 增量推给客户端（客户端按本地副本决定按钮可不可点，
+    只在服务端记账客户端永远看不到，见坑 25 的对称约束）。
+  - 开关与保底线：`server/runtime-config.json` 加 `"universe_auto_grant": false`（恢复官方
+    经济，扣不动回 `RES_NOT_ENOUGH(4)`）或 `"universe_resource_floor": <数值>`；
+    **编辑器「总览」页的宇宙资源卡片里也有同一个开关**（改完立即生效，无需重启）。
+  - 手动发放：**编辑器「总览」页新增「宇宙资源」卡片**（进行中的远航才有，资源 2 =
+    金刚凝胶，直接改数字进待保存清单；在线存档保存后游戏内即时生效并推送，
+    离线存档重登后生效）；游戏内 GM 指令 **`add_res <1..4> <数量>`**（负数即扣减）；
+    服务端控制台 **`addres [账号|all] <1..4> <数量>`**（走维护窗口，重登后生效）。
+  - 测试：`test/universe_check.js` 新增自动补发段落（满资源/空钱包/反复切换/关开关恢复
+    官方行为/GM 指令，环境变量 `GHS_UNIVERSE_GRANT` 注入配置避免依赖开发机
+    runtime-config.json）；`test/editor_check.js` 新增 `set_universe_res` 操作与
+    `/editor/api/server/universe_grant` 端点断言（`GHS_RUNTIME_CONFIG` 隔离配置文件）；
+    `test/editor_ui_check.js` 断言总览页卡片渲染与开关状态回填；
+    `test/fake_client.js` 的付费图换角色断言改为「3 次全部成功 +
+    扣费与补发增量成对出现（净 0）」；其余段落默认在关闭状态下跑以继续守护官方经济数值。
+
+- **游戏启动器（编辑器新增「游戏启动器」工作区，M5）**：
+  - **启动与状态页**：一键经 Steam 拉起游戏（`steam://rungameid/2877160`）、游戏目录与
+    主程序指纹、Paks 目录与 mod 补丁（`GHSMods_P.pak`）安装状态；游戏更新后提示「建议重建」。
+  - **Mod 管理页**：导入（zip/目录，零依赖 ZIP 解析）、启用/禁用、↑↓ 调优先级
+    （**越靠下越优先**）、删除（手输 id 确认）、自动冲突报告（同名文件按优先级裁决并列出胜者）、
+    「合并启用 mod → 安装到游戏」（repak 打成单个 V8B 不加密补丁 pak 放进游戏 Paks 目录，
+    **原版 pak 零改动**，卸载 = 删一个文件）与「只看合并预览」。
+  - **服务端数据表补丁**：启用 mod 的 `server_patch/*.json` 按 id 深合并进
+    `reference/gamedata/`（首次应用前自动备份原表，可一键精确还原）；应用后
+    `gamedata.reload()` 热重载，运行中的服务端即时生效，无需重启。
+  - 新模块：`server/src/mods.js`（仓库/校验/合并/打包/安装/补丁）、`server/src/zip.js`
+    （零依赖 ZIP 读写）；HTTP 接口 `/editor/api/game*`（editorapi.js `handleGameApi`）。
+  - mod 格式规范 **`docs/MOD_FORMAT.md`**（开放格式：`mod.json` + `files/` +
+    `server_patch/`，文本编辑器即可写数据 mod）+ 第三方校验工具 **`tools/validate_mod.js`**
+    （与启动器导入同一份校验器）；使用说明 **`docs/LAUNCHER.md`**。
+  - 测试：`npm run test:launcher`（校验/导入/穿越防护/冲突裁决/补丁应用还原/
+    repak 端到端——本机没装 repak 时该段自动 SKIP）；`editor_ui_check` 扩展到
+    11 个标签页与三工作区切换。
+  - `REVERSE_ENGINEERING.md` 新增第 14 节「Mod 能力调查」：补丁 pak / 热更通道
+    （Update.lua + UChunkCore + GHSChunkDownloader）/ Saved 注入边界的完整证据链，
+    以及加新角色的数据驱动管线（`d_char_clothes` 换装、fightModelPath 反查、
+    每角色私有骨架与动画库、变身=独立机甲网格体）。
+
+
+- **角色页支持单角色精细化编辑**（点角色卡片打开弹窗，原先只有「全部解锁」这种粗粒度开关）：
+  - **逐孔勾选星位**（`#talList`，23 个 chip，悬停显示「孔 N · 名字 · 条件」，另有
+    「全选 / 只留初始孔」）；不再只有「点亮全部星位」。
+  - **逐件勾选皮肤 + 指定穿戴**（战斗 / 机甲 / 主城三类各自成组，每件一个 chip，
+    另有该类的穿戴下拉框，0 = 默认）。
+  - **逐个技能改等级**（列出该角色全部主动/被动技能，超过 `d_skill_fight_level`
+    的上限时自动夹住并在结果里说明）。
+  - **机甲换装**（六个部位：显示当前装备 + 该部位背包里的候选；卸下的回背包，
+    同部位换装时旧件自动回背包）。
+  - 服务端新增六个精确 op：`set_talents` / `set_skins` / `set_worn_skin` /
+    `set_character_skills` / `equip_arm` / `unequip_arm`，全部沿用既有
+    `/editor/api/player/:id/update` 通道（在线即时生效、离线写档），
+    `equip_arm` / `unequip_arm` 的载荷口径与 `req_character_equip_arm` 一致。
+  - `/editor/api/catalog` 的角色条目新增 `talents` / `skins` / `skills` 明细，
+    顶层新增 `equips`（六个部位共 60 件机甲），编辑器因此能显示机甲名字，
+    背包也多了「机甲」分类。
+  - 在线推送顺序改为**先 `ntf_character_info` 再 `ntf_item_info`**：客户端
+    `BackpackSystem.lua:345` 只在载荷带 `item_extra` 时按 uuid 在**当前**已装备列表里
+    找它（`bEquipped`），同部位换装时若道具先到，客户端会认为换下的那件还在身上、
+    于是永远不进背包，随后角色 ntf 又把它移出装备列表——机甲在界面上凭空消失。
+- **网页控制台的自动补全与输出分级**：
+  - 输入框支持 **Tab 补全**（指令名 / 账号 / 快照目录 / 角色 id，`addchar` 支持两个参数位）、
+    ↑↓ 在候选面板里移动（面板没开时仍是翻历史）、危险指令在候选里带「危险」标签。
+  - 输出按级别着色：普通 / 调试 / **警告**（橙色） / **错误**（红色） / «指令回显»，
+    级别的判定仍是服务端日志里的 `[I]/[V]/[W]/[E]` 前缀，裸 `>>` 行视为指令回显。
+- **危险操作改为红色**：危险区（清空存档 / 停止服务端）用红色实线框 + 淡红底，
+  危险按钮（清档 / 停服 / 清空月卡 / 背包行内删除）用红色描边与文字，
+  确认弹窗的手输框也会变红。仍然保留「手输确认串」这一道语义闸门。
+  `style.css` 的设计语言注释同步更新：彩色只剩两处——连接状态灯与危险操作。
+- **服务器 GitHub 地址（<https://github.com/XUNDEI/Nornium-ServerDev>）在四个入口可见**：
+  服务端启动横幅、控制台 `help` / `status`、网页编辑器侧栏底部（`#repoLink`，
+  链接文本由 `/editor/api/server` 的 `repo_url` 驱动）、编辑器「使用说明」。
+  `server/package.json` 新增 `homepage` 字段作为单一来源。
+- **日志降噪**：`req_ping` 心跳、13 条初始状态同步、HTTP 轮询（`/client/marquee/list` 等）
+  不再逐条写 `info`（改成 `log.verbose`，需要时用 `GHS_VERBOSE=1` 打开）；
+  新增 `src/activity.js` 每 5 分钟汇总一行
+  `[activity] 近 5 分钟：心跳 N 次 · 状态同步 M 次 · 其他请求 K 次 · 连接 +a/-b · 在线 c 人`
+  （零流量时不打），停服前会把最后一窗 flush 掉。
+- **一键启动的紧凑输出**：`点我启动.bat` 在「配置已存在 + 依赖已装 + 客户端配置没变」时
+  只打横幅 + 「环境已就绪…（配置未改动）」+ 第 2 步提示（约 14 行，原 ~30 行）；
+  首次运行/配置变化/依赖缺失时仍是原来那份逐步骤的完整输出。
+
+### Removed
+
+- **移除锁帧兜底（`src/framefix.js`）**：客户端设置界面的帧率选项不落盘是客户端自身的
+  持久化 bug（8.13/坑 45），私服不再在服务端启动时往客户端 ini 里钉锁帧键。
+  跑过旧版本的机器上，曾写入的键**不会自动消失**：`GameUserSettings.ini` 两个
+  GameUserSettings 节的 `FrameRateLimit=60.000000`、`Engine.ini` 的
+  `[/Script/Engine.Engine] bSmoothFrameRate=False` 与 `[SystemSettings] t.MaxFPS=60`
+  —— 想还原引擎默认帧率就手动删掉这几行，保留则等于继续锁 60 帧。
+  `index.js` 使用的 `savedDir()`（channel.lua 端口同步依赖）已内联进 index.js。
+
+### Fixed
+
+- **星图「额外建筑格」探索后无法部署建筑（图 3~7）**：额外建筑格
+  （`d_srpg_main_pos_base` 104，B01_Nothing，nameId 11310104「提供额外的可用建筑格！」）
+  官方语义是**开局无卡位、踩上探索时**由探索效果 trigger 122（effectType 122，
+  `effectConfig [1]` = `d_srpg_card_pos` 普通卡位）把该格变成可用建筑格。旧服务端
+  `attachForPos` 只认 A47_FreeCard / A39_Building* / nameId 102000101/102000102
+  （初始建筑格 101 命中、额外格不命中），`applyEffect` 又把 121/122 标为「语义未确认」
+  忽略 —— 格子永远没有 `main_pos_card_pos_info`，客户端不显示「部署建筑」（坑 28 同机制）。
+  图 1/2 的布局只有初始建筑格所以此前未暴露；mapdata 17/18（图 3~7）是
+  「101×2~3 初始格 + 104×6 额外格」布局。修复：`applyEffect` 新增 case 122 ——
+  挂卡位并推 `ntf_main_pos_add_attach`（客户端 `SrpgController.lua:279` 原生追加进格子；
+  已有卡位时幂等跳过，不覆盖已部署建筑），`refreshAttach` 给旧存档里**已探索**的
+  额外格补卡位（未探索的保持空位；`cardPosAttach` 行号缺省时返回 null 而不是兜底
+  卡位 1，否则剧情图基地格会被误挂）。effectType 121（仅游商格携带、config 1..6
+  超出卡位表 3 行）维持未确认。详见坑 48。
+  测试：`test/universe_check.js` 新增额外建筑格段（探索解锁 + `ntf_main_pos_add_attach`
+  内容 + 解锁后可部署 + 初始格 122 触发不覆盖原卡位 + 旧档修复幂等）。
+
+- **武器光淬（精炼）后客户端显示「光淬0阶 → 光淬0阶」、前后效果描述相同**：
+  服务端 `reqWeaponRefine` 只把 `refine_level` +1 并存档，从不推送 `ntf_item_info`；
+  而客户端收到 `res_weapon_refine` 只广播「成功」，效果变动弹窗从背包缓存读新阶数，
+  背包缓存只随 `ntf_item_info` 更新 —— 于是新旧阶都读到旧值，两段描述自然相同。
+  现在升阶成功后**先推 `ntf_item_info`**（目标武器 `count=0` + 完整 `weapon_info`，
+  命中客户端背包「整条替换」分支；已装备武器走 `item_extra` 分支原地刷新），再回
+  `res_weapon_refine`。同时补上 `d_weapon.maxRefine` 上限守卫（到顶回 result=1，
+  不再无限升阶 —— 超顶后客户端查 `d_skill_fight_level` 会落空）。
+- **光淬素材消耗的两个伴随问题**：① `req.stuff_item_uuid` 是 repeated 字段，
+  旧实现 `Number(array)` 在多选素材时得到 NaN、一个都不扣；现在遍历数组逐个扣除。
+  ② 服务端扣掉的素材从不推给客户端，背包里被吃的武器要重登才消失；现在每个被消耗
+  的素材以 `count=-1` 并进同一次 `ntf_item_info`，客户端即时同步。
+  回归断言：`test/weapon_check.js` 光淬段（ntf 先于 res / 多素材全扣 / 到顶拒绝）。
+- **锁 60 帧兜底修正（坑 14 的续集）**：上一版往 `Saved\Config\Windows\GameUserSettings.ini`
+  写 `bUseSmoothFrameRate=False` 的做法**在这个 UE 构建里根本没人读** —— 用 repak 解出
+  pak 内的 `DefaultEngine.ini` / 默认 `GameUserSettings.ini` 后确认：游戏自己的
+  `[/Script/Engine.GameUserSettings]` 序列化里从来没有这个键，冷前端指向的
+  `SetUseSmoothFrameRate` / `ApplyFrameRateLimit` 等 BP 函数才是真正写 `t.MaxFPS` 的地方，
+  而它们只在游戏内改设置时被调用一次。所以真正能兜住的是引擎侧的两处配置：
+  `Saved\Config\Windows\Engine.ini` 的 `[/Script/Engine.Engine] bSmoothFrameRate=False`
+  与 `[SystemSettings] t.MaxFPS=<N>`（Saved 覆盖 pak 内的默认值），再保留
+  `GameUserSettings.ini` 的 `FrameRateLimit=<N>`。三个键仍然幂等、保留 CRLF、
+  只动这几行，`frame_lock_fps: 0` 依旧是总开关；下一次启动游戏时生效。
+- **修复 `mergeIniSection()` 追加新节时把已有 CRLF 变成 `\r\r\n` 的老 bug**：追加分支原本对
+  整段文本做了一次 `\n → \r\n` 全局替换，于是第二遍执行时行尾已经坏掉、幂等性失效
+  （写 `t.MaxFPS` 到 `[SystemSettings]` 时第一次踩到）。现在只对新增块用文件的 EOL。
+- **修复编辑器「死键」残留**：不再写 `bUseSmoothFrameRate`，并把它从两节里删掉
+  （老存档里被上一版写进去的那行会在下次启动时清掉），避免误导后来人。
 - **`node setup.js --check`（别名 `--doctor`）：只读环境自查**。回答玩家/作者最常问的三件事：
   ① 我这份代码是修好的吗（旧版的依赖自动安装 100% 失败，坑 47）；
   ② 我机器上的依赖到底装了没、下次启动会不会再走安装那一步；
@@ -20,8 +194,6 @@
   **必须先剥掉注释再匹配**——修复后的文件里恰好引用了旧写法当反面教材（本文件自己的注释里
   就写着 `spawnSync('npm.cmd', ['install'])`），不剥离会把修好的文件判成旧版（自检第一次跑
   就踩了这个坑，已写进注释与断言）。
-
-### Fixed
 
 - **全新下载后「首次运行正在安装依赖 → 依赖安装失败」——向导根本没把 npm 起起来（坑 47）**。
   玩家反馈：双击「点我启动.bat」后停在
@@ -57,6 +229,20 @@
     `EINVAL`（把用户报的现象钉住）、向导的调用方式不得以 `.cmd/.bat` 结尾、
     `npm-cli.js` 必须真实存在且子命令是 `install`、Windows 兜底必须经 `cmd.exe`。
 
+### Changed
+
+- **没选存档时，右侧的存档页标签直接置灰、点不动**（总览/背包/角色/抽卡/商城/剧情/备份 7 个），
+  鼠标悬停提示「先从左栏选一个存档」；「服务器管理」「服务器控制台」两个标签不受影响
+  （它们本来就不需要存档）。以前点这些标签会静默退回主页，容易让人以为界面坏了。
+  主页在未选档时显示「未选中存档 · 请先从左侧选一个存档」。
+- **启动器/向导输出**：横幅第二行改为「完全免费开源（付费买到即被骗）· 项目主页 <地址>」；
+  服务端启动横幅从 6 行压到 4 行（版本/网页编辑器/项目主页/控制台提示），
+  控制台就绪提示从一整行指令清单压成一句「输入 help 查看全部指令（stop 停服）」。
+  完整的指令表仍在 `README.md` 与控制台的 `help` 里。
+- **`test:skins` / `test:editor-ui` / `test:setup` 的描述与断言同步更新**（新增
+  `test:log`；`editor_ui_check` 覆盖锁定标签、危险红、控制台补全与分级着色、
+  角色精细化区块、仓库地址入口；`setup_check` 覆盖紧凑输出档位与仓库地址）。
+
 ## [0.2.0] - 2026-09-27
 
 ### Added
@@ -89,6 +275,12 @@
   `%LOCALAPPDATA%\Nornium\Saved\Config\Windows\GameUserSettings.ini`（幂等，
   只动这两个键，保留 CRLF 与其余内容）。想关掉：`server/runtime-config.json` 里加
   `"frame_lock_fps": 0`。
+  > **已更正（见 Unreleased / Fixed）**：`bUseSmoothFrameRate` 在这个 UE 构建里不是
+  > `UGameUserSettings` 的属性（pak 内的默认 ini 与 exe 的 BP 函数名表都没有它），
+  > 写进去没人读。现在改成写 `Engine.ini` 的 `bSmoothFrameRate=False` +
+  > `[SystemSettings] t.MaxFPS=N`（Saved 覆盖 pak 默认），并保留
+  > `GameUserSettings.ini` 的 `FrameRateLimit=N`；上一版写下的 `bUseSmoothFrameRate`
+  > 会被清掉。`frame_lock_fps: 0` 仍是总开关。
 - **控制台新指令**：`addchar <账号> <角色id|all>`（添加角色，含专属武器/技能/默认皮肤）、
   `allskins [账号]`。配套把 allweapons 的账号解析抽成共用的 `resolveTargets()`。
 

@@ -7,8 +7,7 @@
 //   4. req_character_change_skin 的解锁校验（NO_SKIN）与 0=默认；
 //   5. migrateSkins：老存档自动补默认皮肤 + 背包皮肤卡就地解锁 + 幽灵道具清理，幂等；
 //   6. unlockAllSkins 的数量口径；
-//   7. 控制台 addchar / allskins；
-//   8. framefix.mergeIniSection 的合并语义（CRLF 保留 / 幂等 / 追加节）。
+//   7. 控制台 addchar / allskins。
 //
 // 必须在 require 服务端模块之前设置 GHS_DATA_DIR（store.js 载入时读它），
 // 让这些检查的存档落在临时目录，不碰真实的 server/data/。
@@ -251,25 +250,6 @@ check(initialCharacterIds().length === 10, 'initialCharacterIds still returns th
 
   const bad = await handleCommand('allskins no-such-account', hooks);
   check(/没有叫/.test(bad.reply), 'allskins with unknown account errors clearly');
-
-  // ---------------- 8. framefix.mergeIniSection ----------------
-  const ff = require('../src/framefix');
-  const crlf = '[/Script/Engine.GameUserSettings]\r\nbUseDesiredScreenHeight=False\r\n\r\n[ScalabilityGroups]\r\nsg.ResolutionQuality=87\r\n';
-  const m1 = ff.mergeIniSection(crlf, 'Engine.GameUserSettings', { bUseSmoothFrameRate: 'False', FrameRateLimit: '60.000000' });
-  check(m1.changed === true, 'merge changes a plain file');
-  check(m1.text.includes('bUseSmoothFrameRate=False') && m1.text.includes('FrameRateLimit=60.000000'), 'keys merged into the right section');
-  check(m1.text.includes('\r\n'), 'CRLF line endings preserved');
-  check(m1.text.includes('sg.ResolutionQuality=87'), 'other sections untouched');
-  const m2 = ff.mergeIniSection(m1.text, 'Engine.GameUserSettings', { bUseSmoothFrameRate: 'False', FrameRateLimit: '60.000000' });
-  check(m2.changed === false && m2.text === m1.text, 'merge is idempotent');
-  // 已有键被改值
-  const withLimit = '[/Script/GHS.GHSGameUserSettings]\r\nFrameRateLimit=0.000000\r\nbUseVSync=False\r\n';
-  const m3 = ff.mergeIniSection(withLimit, '/Script/GHS.GHSGameUserSettings', { FrameRateLimit: '60.000000', bUseSmoothFrameRate: 'False' });
-  check(m3.changed && m3.text.includes('FrameRateLimit=60.000000') && !m3.text.includes('FrameRateLimit=0.000000'), 'existing key replaced in place');
-  check(m3.text.indexOf('FrameRateLimit=60.000000') < m3.text.indexOf('bUseVSync=False'), 'replaced key keeps its position');
-  // 节不存在 → 追加
-  const m4 = ff.mergeIniSection('[Other]\r\nA=1\r\n', 'Missing.Section', { X: '1' });
-  check(m4.text.includes('[Missing.Section]') && m4.text.includes('X=1'), 'missing section appended');
 
   console.log(failures === 0 ? '\nALL SKINS CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);

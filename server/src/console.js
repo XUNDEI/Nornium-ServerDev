@@ -12,12 +12,20 @@
 //                    可给账号 ID / 账号名 / all。
 //                    （早期版本是「每个角色发一把同类型最高稀有度」，会发到未实装武器
 //                     1081601「颂歌」上去 —— 那把没有模型/图标/技能行，见 game/weapon_data.js。）
+//   allexclusive [账号]
+//                    给玩家档案发放「专武」：每名可玩角色的 7★ 专属武器各一把（映射与
+//                    证据见 game/weapon_data.js 的 CHARACTER_EXCLUSIVE_WEAPONS）。
+//                    目标账号解析与 allweapons 相同。
 //   addchar <账号> <角色id|all>
 //                    给玩家档案添加角色（含专属武器/技能/默认皮肤）。新号开局只发教学
 //                    三人小队（game/player_new.js 的 starterCharacterIds），其余角色靠
 //                    抽卡/这条指令/编辑器补。
 //   allskins [账号]   给玩家档案解锁全部已拥有角色的全部皮肤（直接写 own_*_skin_ids，
 //                    不发皮肤卡道具；游戏内角色页「装扮」即可换）。
+//   addres [账号] <1..4> <数量>
+//                    给「进行中的远航」补肉鸽资源（res_value，1..4 号），数量可负。
+//                    没有进行中的远航就跳过——资源只存在于局内，背包指令救不了它。
+//                    平时更方便的是游戏内 GM 指令 add_res（即时生效不用下线）。
 //   stop             踢掉所有在线玩家并停止服务端进程。
 //   status           看一眼在线人数与存档数量。
 //   help             指令列表。
@@ -39,8 +47,12 @@ const { drainSessions, liveSessionCount } = require('./session');
 const log = require('./logger');
 const arsenal = require('./game/arsenal');
 
-// allweapons 不带参数时只发这一个账号（服主本人的主档 xundei，2026-09-25 确认）。
-// 想发给别的档用 `allweapons <账号ID|账号名|all>`。
+// 项目主页：单一来源是 package.json.homepage（编辑器网页 / 启动器 / 服务端横幅同源）。
+const REPO_URL = require('../package.json').homepage
+  || 'https://github.com/XUNDEI/Nornium-ServerDev';
+
+// allweapons / allexclusive 不带参数时只发这一个账号（服主本人的主档 xundei，2026-09-25 确认）。
+// 想发给别的档用 `allweapons <账号ID|账号名|all>` 或 `allexclusive <账号ID|账号名|all>`。
 const DEFAULT_ALLWEAPONS_ACCOUNT_ID = 10;
 
 // 没有 index.js（单测）时的降级：只排空，不动监听套接字
@@ -210,9 +222,17 @@ function resolveTargets(arg, what) {
 // allweapons 的老解析函数保留为别名（语义完全一致，只是换了名字）。
 const resolveWeaponTargets = resolveTargets;
 
-async function cmdAllWeapons(arg, hooks) {
+// allweapons / allexclusive 共用的发放主体。mode = 'high_rarity' 发全部已实装 6★/7★，
+// mode = 'exclusive' 发每名可玩角色的 7★ 专武。
+async function cmdGrantWeapons(arg, hooks, mode) {
   const { targets, error } = resolveTargets(arg, '发');
   if (error) return { action: 'none', reply: error };
+
+  const label = mode === 'exclusive' ? 'allexclusive' : 'allweapons';
+  const noun = mode === 'exclusive' ? '专武' : '高稀有度武器';
+  const grant = mode === 'exclusive'
+    ? (doc) => arsenal.grantExclusiveWeapons(doc)
+    : (doc) => arsenal.grantHighRarityWeapons(doc);
 
   return runGated(hooks, async (drain) => {
     const lines = [];
@@ -223,7 +243,7 @@ async function cmdAllWeapons(arg, hooks) {
         lines.push(`>>   ${name}：该账号还没有玩家档案，跳过。`);
         continue;
       }
-      const { granted } = arsenal.grantHighRarityWeapons(doc);
+      const { granted } = grant(doc);
       store.savePlayer(doc);
       total += granted.length;
       const brief = granted
@@ -231,11 +251,21 @@ async function cmdAllWeapons(arg, hooks) {
         .join(' ');
       lines.push(`>>   ${name}（档案 ${id}）：发出 ${granted.length} 把  ${brief}`);
     }
-    log.info(`[console] allweapons：目标 ${targets.length} 个档案，共发放 ${total} 把高稀有度武器`);
+    log.info(`[console] ${label}：目标 ${targets.length} 个档案，共发放 ${total} 把${noun}`);
     if (total === 0) lines.push('>>   （没有实际发放任何武器）');
     lines.push('>> 只进背包、不会自动装备；在线玩家已踢下线，重新登录后到背包领取。');
     return { action: 'none', reply: lines.join('\n') };
   });
+}
+
+async function cmdAllWeapons(arg, hooks) {
+  return cmdGrantWeapons(arg, hooks, 'high_rarity');
+}
+
+// allexclusive <账号>：每名可玩角色的 7★ 专属武器各一把（十把，映射与证据见
+// game/weapon_data.js 的 CHARACTER_EXCLUSIVE_WEAPONS）。入包不自动装备。
+async function cmdAllExclusive(arg, hooks) {
+  return cmdGrantWeapons(arg, hooks, 'exclusive');
 }
 
 // addchar <账号> <角色id|all>：给玩家档案添加角色（不再随开局自动发放全部角色后的
@@ -287,6 +317,51 @@ async function cmdAddChar(arg, hooks) {
   });
 }
 
+// addres [账号ID|账号名|all] <1..4> <数量>：给「进行中的远航」补肉鸽资源
+// （res_value 1..4 号，可给负数扣减）。切角色/游商/晋升都从这 4 个资源扣，
+// 资源见底时用这条（或游戏内 GM add_res）救急。资源只存在于局内——没有
+// active 远航的档案没有东西可加，会被跳过。
+async function cmdAddRes(arg, hooks) {
+  const parts = String(arg || '').trim().split(/\s+/).filter(Boolean);
+  let targetArg = '';
+  let typeArg = '';
+  let countArg = '';
+  if (parts.length >= 3) [targetArg, typeArg, countArg] = parts;
+  else if (parts.length === 2) [typeArg, countArg] = parts;
+  else {
+    return { action: 'none', reply: '>> 用法：addres [账号ID|账号名|all] <资源1..4> <数量>\n'
+      + '>>   例：addres 2 500（默认账号的资源2 +500）   addres xundei 1 -50' };
+  }
+  const { targets, error } = resolveTargets(targetArg, '发');
+  if (error) return { action: 'none', reply: error };
+  const type = Number(typeArg);
+  const delta = Math.trunc(Number(countArg));
+  if (!(type >= 1 && type <= 4) || !Number.isFinite(delta) || delta === 0) {
+    return { action: 'none', reply: `>> × 资源号必须是 1..4，数量必须是非零整数（收到 "${typeArg} ${countArg}"）。` };
+  }
+
+  return runGated(hooks, async () => {
+    const lines = [];
+    let touched = 0;
+    for (const { id, name } of targets) {
+      const doc = store.loadPlayer(id);
+      if (!doc || !doc.universe || !doc.universe.active) {
+        lines.push(`>>   ${name}：没有进行中的远航，跳过（资源只在局内，先开局再来）。`);
+        continue;
+      }
+      const before = doc.universe.res_value[type] ?? 0;
+      doc.universe.res_value[type] = before + delta;
+      store.savePlayer(doc);
+      touched += 1;
+      lines.push(`>>   ${name}（档案 ${id}）：资源${type} ${before} → ${doc.universe.res_value[type]}`);
+    }
+    log.info(`[console] addres：目标 ${targets.length} 个档案，实际改动 ${touched} 局`);
+    if (touched === 0) lines.push('>>   （没有实际改动任何一局远航）');
+    lines.push('>> 在线玩家已被请下线，重新登录后远航会带着新资源恢复。');
+    return { action: 'none', reply: lines.join('\n') };
+  });
+}
+
 // allskins [账号|all]：给玩家档案解锁全部已拥有角色的全部皮肤（战斗/机甲/主城）。
 // 直接写角色的 own_*_skin_ids，不发皮肤卡道具。
 async function cmdAllSkins(arg, hooks) {
@@ -320,7 +395,7 @@ function cmdStatus() {
   const stats = store.dataStats();
   return {
     action: 'none',
-    reply: `>> 在线连接 ${liveSessionCount()} 个；存档：${stats.accounts} 个账号 / ${stats.players} 个玩家档案。`,
+    reply: `>> 在线连接 ${liveSessionCount()} 个；存档：${stats.accounts} 个账号 / ${stats.players} 个玩家档案。\n>> 项目主页：${REPO_URL}`,
   };
 }
 
@@ -334,11 +409,14 @@ function cmdHelp() {
       '>>   load <备份目录>    直接把备份目录导入 server\\data\\ 再热加载，不用手工拷文件',
       '>>   export [目录]     把当前存档整份导出（不带参数＝导到默认备份位置）',
       '>>   allweapons [账号]  给玩家发放全部高稀有度武器（已实装的 6★/7★ 各一把；不带参数＝默认账号；可给 ID/账号名/all）',
+      '>>   allexclusive [账号] 给玩家发放全部专武（每名可玩角色一把 7★ 专属武器；目标账号写法同 allweapons）',
       '>>   addchar <账号> <角色id|all>  给玩家添加角色（含专属武器/技能；新号不再自动发全角色，用这个补）',
       '>>   allskins [账号]    给玩家解锁全部已拥有角色的全部皮肤（可给 ID/账号名/all）',
+      '>>   addres [账号] <1..4> <数量>  给进行中的远航补肉鸽资源（数量可负）',
       '>>   stop              踢掉所有在线玩家并停止服务端',
       '>>   status            查看在线人数与存档数量',
       '>>   help              显示本帮助',
+      `>> 项目主页：${REPO_URL}`,
     ].join('\n'),
   };
 }
@@ -357,13 +435,15 @@ async function handleCommand(raw, hooks) {
     case 'load': return cmdLoad(arg, hooks);
     case 'export': return cmdExport(arg, hooks);
     case 'allweapons': return cmdAllWeapons(arg, hooks);
+    case 'allexclusive': return cmdAllExclusive(arg, hooks);
     case 'addchar': case 'add_character': return cmdAddChar(arg, hooks);
     case 'allskins': case 'allskins_unlock': return cmdAllSkins(arg, hooks);
+    case 'addres': case 'add_res': return cmdAddRes(arg, hooks);
     case 'stop': return cmdStop();
     case 'status': return cmdStatus();
     case 'help': case '?': case '？': return cmdHelp();
     default:
-      return { action: 'none', reply: `>> 未知指令 "${line}"。可用：restore / load / export / allweapons / addchar / allskins / stop / status / help` };
+      return { action: 'none', reply: `>> 未知指令 "${line}"。可用：restore / load / export / allweapons / allexclusive / addchar / allskins / addres / stop / status / help` };
   }
 }
 
@@ -389,7 +469,8 @@ function startConsole({ onStop, maintenance } = {}) {
   rl.on('close', () => {
     log.info('[console] 标准输入已关闭，控制台指令不可用（服务端继续运行）');
   });
-  console.log('>> 控制台指令就绪：restore=清空存档  load[ 备份目录]=重载/导入存档  export[ 目录]=导出存档  allweapons[ 账号]=发高稀有度武器  addchar <账号> <角色id|all>=加角色  allskins[ 账号]=解锁全部皮肤  stop=停服  status=状态  help=帮助');
+  // 一行足矣：完整清单由 help 提供，启动时不必再刷一遍（以前这行 300+ 字符）。
+  console.log('>> 控制台已就绪：输入 help 查看全部指令（stop 停服）。');
   return rl;
 }
 

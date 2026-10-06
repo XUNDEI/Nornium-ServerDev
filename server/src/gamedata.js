@@ -4,7 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const gdDir = path.join(__dirname, '..', '..', 'reference', 'gamedata');
+// 表目录：默认 reference/gamedata；GHS_GAMEDATA_DIR 供测试注入（启动器的服务端
+// 数据表补丁测试改的是临时目录，不能碰真表 —— 与 GHS_DATA_DIR 同一规矩）。
+const gdDir = process.env.GHS_GAMEDATA_DIR
+  || path.join(__dirname, '..', '..', 'reference', 'gamedata');
 const cache = new Map();
 
 function table(name) {
@@ -38,4 +41,10 @@ function has(name, id) {
   return query(name, id) !== null;
 }
 
-module.exports = { table, query, rows, has };
+// 丢弃某张表的内存缓存（下次 query 重新读盘）。启动器的「服务端数据表补丁」
+// 改完盘上的 JSON 后靠它让运行中的服务端立刻生效，不用重启（见 src/mods.js）。
+function reload(name) {
+  cache.delete(name);
+}
+
+module.exports = { table, query, rows, has, reload };

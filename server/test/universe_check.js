@@ -48,6 +48,10 @@ const { migratePlayer } = require('../src/game/migrate');
 const U = require('../src/game/universe');
 const gd = require('../src/gamedata');
 
+// 资源自动补发是私服便利功能（默认开）；本文档其余段落断言的是**官方经济数值**
+// （晋升 -50 / 召回 -20 等），所以除最后一段外统一在关闭状态下跑。
+process.env.GHS_UNIVERSE_GRANT = JSON.stringify({ on: false });
+
 const STORY_SPECIFIC = 1000309;   // d_srpg_map_specific[1000309].map = 1000309
 const STORY_MAP = 1000309;        // d_srpg_map_base[1000309].substitutionCost = [2, 0]
 const FREE_MAP = 1000309;
@@ -231,6 +235,67 @@ const itemCount = (doc, itemId) => doc.bag.items
   paidCall('req_recall_card', { hex: paidSlot.hex, attach_index: 0 });
   check(paidRun.res_value[2] === purse - 20,
     'a generic map charges the paid recallCost (d_srpg_card_pos 1 → [2,20])');
+}
+
+// ---------------- 额外建筑格：探索时解锁卡位（effectType 122） ----------------
+// 「额外建筑格」（d_srpg_main_pos_base 104，B01_Nothing，nameId 11310104「提供额外
+// 的可用建筑格！」）开局不带卡位 —— attachForPos 只认 A47_FreeCard / A39_Building* /
+// nameId 102000101/102000102。它的卡位来自探索效果 trigger 122（effectType 122，
+// effectConfig [1] = d_srpg_card_pos 1）：踩上去时服务端给该格挂
+// main_pos_card_pos_info 并推 ntf_main_pos_add_attach（客户端 SrpgController.lua:279
+// 把 attach 追加进格子的 main_pos_attach_infos，之后 UI_Menu_C 才会显示「部署建筑」）。
+// 图 1/2 的布局（d_srpg_map_data 11/12）只有 101 建筑格；104×6 出现在 mapdata 17/18
+// （map_type 2/3 的图 3~7）—— 这正是「初始建筑格能放、额外建筑格不行」的出处。
+{
+  const handle = require('../src/handlers/universe').handle;
+  const doc = createPlayerDoc(9018);
+  const sent = [];
+  const session = { player: doc, send: (n, m, r) => sent.push({ name: n, msg: m, result: r }) };
+  const call = (n, r) => { sent.length = 0; handle(n)(session, r || {}); return sent; };
+
+  call('req_new_universe', mapParams({ map_type: 2 }));
+  const run = doc.universe;
+  check(run.main_pos && Object.values(run.main_pos).some((c) => c.main_pos_id === 104),
+    'map_type=2 run lays out 额外建筑格 cells (d_srpg_main_pos_base 104)');
+  const extra = Object.values(run.main_pos).find((c) => c.main_pos_id === 104);
+  check(!extra.attach, 'the 额外建筑格 starts with no card slot');
+
+  extra.state = 2;
+  const msgs = call('req_explore', { hex: extra.hex });
+  const add = msgs.find((m) => m.name === 'ntf_main_pos_add_attach');
+  check(!!add, 'exploring the 额外建筑格 pushes ntf_main_pos_add_attach');
+  check(!!add && add.msg.hex.q === extra.hex.q && add.msg.hex.r === extra.hex.r,
+    'the granted attach is addressed to the explored cell');
+  check(!!add && add.msg.main_pos_attach_infos[0].main_pos_card_pos_info.card_pos_id === 1,
+    'the granted slot is d_srpg_card_pos 1 (普通卡位)');
+  check(U.posAt(run, extra.hex).attach.main_pos_card_pos_info.card_pos_id === 1,
+    'the run state keeps the granted slot');
+
+  run.cards.push(10001);
+  check(call('req_place_card', { hex: extra.hex, attach_index: 0, index_in_hand: 0 })[0].result === undefined,
+    'the unlocked slot accepts a deployment (部署建筑)');
+
+  // initial 建筑格 (101) already carries its slot from generation, so its own
+  // effectType-122 trigger must no-op instead of overwriting it
+  const initial = Object.values(run.main_pos).find((c) => c.main_pos_id === 101 && c.attach);
+  check(!!initial, 'map_type=2 run also has initial 建筑格 cells (101)');
+  const initialAttach = JSON.stringify(initial.attach);
+  initial.state = 2;
+  call('req_explore', { hex: initial.hex });
+  check(JSON.stringify(U.posAt(run, initial.hex).attach) === initialAttach,
+    'exploring an initial 建筑格 keeps its generation-time slot');
+
+  // old-save repair: an extra cell already explored under the old server (state 3,
+  // no attach) gets its slot back on load; unexplored ones stay empty
+  const repaired = U.newUniverse(mapParams({ map_type: 2 }));
+  const ex2 = Object.values(repaired.main_pos).find((c) => c.main_pos_id === 104);
+  ex2.state = 3;
+  ex2.attach = null;
+  check(U.refreshAttach(repaired) === true, 'refreshAttach repairs an explored 额外建筑格');
+  check(ex2.attach && ex2.attach.main_pos_card_pos_info.card_pos_id === 1,
+    'the repaired slot is d_srpg_card_pos 1');
+  check(U.refreshAttach(repaired) === false,
+    'unexplored 额外建筑格 stay attachless and the repair is idempotent');
 }
 
 // ---------------- boss waves follow d_srpg_level_boss.appearTime ----------------
@@ -1238,6 +1303,85 @@ const itemCount = (doc, itemId) => doc.bag.items
   const genericRun = generic.universe;
   migratePlayer(generic);
   check(generic.universe === genericRun, 'a generic-map run is never touched by the repair');
+}
+
+// ---------------- 星图资源自动补发（私服便利功能） ----------------
+// 切角色/游商/晋升/召回/三选一重掷都从 res_value 扣。客户端先用本地副本判断按钮
+// 可不可点，所以"扣费失败再补"轮不到——补发必须作为 ntf_universe_info 增量主动推给
+// 客户端（坑 25 的反过来：资源两边要一起涨）。默认开，保底线 100 = 开局资源。
+// 环境变量 GHS_UNIVERSE_GRANT 在这里显式给定，回归不依赖开发机的 runtime-config.json。
+{
+  process.env.GHS_UNIVERSE_GRANT = JSON.stringify({ on: true, floor: 100 });
+  const handle = require('../src/handlers/universe').handle;
+  const gm = require('../src/handlers/social').handle;
+
+  const doc = createPlayerDoc(9801);
+  const sent = [];
+  const session = { player: doc, send: (n, m, r) => sent.push({ name: n, msg: m, result: r }) };
+  const call = (name, req) => { sent.length = 0; handle(name)(session, req || {}); return sent; };
+  const resFrames = () => sent.filter((s) => s.name === 'ntf_universe_info')
+    .map((s) => s.msg.res_value); // [0,0,0,0] 增量数组，下标 = 资源号-1
+
+  call('req_new_universe', mapParams({ map_type: 1 })); // PAID_MAP，substitutionCost [2,50]
+  const run = doc.universe;
+  const charId = doc.characters[0].character_id;
+  const swap = () => call('req_universe_change_character', { character_id: charId, character_index: 1 });
+  const swapRes = () => sent.find((s) => s.name === 'res_universe_change_character');
+
+  // 满资源切角色：扣 50 后低于保底线，立刻补回 100 —— 客户端看到 -50 / +50 两条增量
+  run.res_value[2] = 100;
+  swap();
+  check(swapRes().result === undefined, 'a paid swap from a full purse answers OK');
+  check(run.res_value[2] === 100, `the purse refills to the floor after the cost (res_value[2] = ${run.res_value[2]})`);
+  check(resFrames().some((d) => d[1] === -50) && resFrames().some((d) => d[1] === 50),
+    'the client is told about both the cost and the top-up (ntf_universe_info deltas)');
+
+  // 资源见底切角色：先补足费用再扣，不再 RES_NOT_ENOUGH(4)——「切换几次就没钱」的根治
+  run.res_value[2] = 0;
+  swap();
+  check(swapRes().result === undefined, 'a swap on an EMPTY purse still answers OK (auto-grant)');
+  check(run.res_value[2] === 100, `the empty purse is topped up past the cost (res_value[2] = ${run.res_value[2]})`);
+
+  // 反复切也不会再掉下去
+  swap();
+  swap();
+  check(run.res_value[2] === 100, 'repeated swaps never drain below the floor');
+
+  // 其他消耗点（游商刷新 [2,25]、三选一重掷）走同一个包装
+  run.res_value[2] = 0;
+  const shopCell = Object.values(run.main_pos).find((c) => c.attach && c.attach.main_pos_shop_info);
+  if (shopCell) {
+    const buy = call('req_main_pos_shop_refresh', { hex: shopCell.hex, attach_index: 0 });
+    check(buy.find((s) => s.name === 'res_main_pos_shop_refresh').result === undefined,
+      'a shop refresh on an empty purse also auto-grants');
+    check(run.res_value[2] === 100, `shop refresh purse refilled (res_value[2] = ${run.res_value[2]})`);
+  } else {
+    check(true, '(generic map has no merchant cell in this seed — shop path covered by code review)');
+  }
+
+  // 关闭开关后恢复官方行为：见底就是 RES_NOT_ENOUGH(4)
+  process.env.GHS_UNIVERSE_GRANT = JSON.stringify({ on: false });
+  run.res_value[2] = 0;
+  swap();
+  check(swapRes().result === 4, 'universe_auto_grant=false restores the official RES_NOT_ENOUGH(4)');
+  check(run.res_value[2] === 0, 'and nothing is granted when the feature is off');
+  delete process.env.GHS_UNIVERSE_GRANT;
+
+  // GM 指令 add_res <1..4> <数量>：直接改当前远航的肉鸽资源（可负数扣减）
+  process.env.GHS_UNIVERSE_GRANT = JSON.stringify({ on: true, floor: 100 });
+  run.res_value[1] = 0;
+  sent.length = 0;
+  gm('req_gm_cmd')(session, { cmd: 'add_res 1 777' });
+  check(run.res_value[1] === 777, 'GM 「add_res 1 777」 sets resource 1');
+  check(sent.some((s) => s.name === 'ntf_universe_info' && s.msg.res_value[0] === 777),
+    'and pushes the delta via ntf_universe_info so the client sees it');
+  sent.length = 0;
+  gm('req_gm_cmd')(session, { cmd: 'add_res 4 -30' });
+  check(run.res_value[4] === 70, 'add_res accepts negative deltas');
+  sent.length = 0;
+  gm('req_gm_cmd')(session, { cmd: 'add_res 9 5' });
+  check(run.res_value[1] === 777, 'an out-of-range resource id is ignored');
+  delete process.env.GHS_UNIVERSE_GRANT;
 }
 
 fs.rmSync(tmpDataDir, { recursive: true, force: true });

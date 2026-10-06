@@ -30,7 +30,7 @@
       </div>
       <div>
         <div class="brand-title">失乐星图</div>
-        <div class="brand-sub">本地服务端 · 存档编辑器</div>
+        <div class="brand-sub">本地服务端 · 启动器 · 存档编辑器</div>
       </div>
     </div>
 
@@ -42,6 +42,9 @@
       <button class="zone-btn" data-zone="server" role="tab" aria-selected="false">
         <svg class="ic" viewBox="0 0 24 24"><path d="M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01"/></svg>
         服务器管理</button>
+      <button class="zone-btn" data-zone="game" role="tab" aria-selected="false">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M6 9h12M8.5 12.5h.01M11 15h.01M6 6h12a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3zM6.5 17l2-2M17.5 17l-2-2"/></svg>
+        游戏启动器</button>
     </div>
 
     <div class="side-block" id="accountsBlock">
@@ -60,6 +63,9 @@
     <div class="side-foot" id="serverCard">
       <div class="server-row"><span class="dot off" id="serverDot"></span><span id="serverStatus">正在连接…</span></div>
       <div class="server-meta" id="serverMeta"></div>
+      <!-- 项目主页：href 由 app.js 用 /editor/api/server 下发的 repo_url 覆盖（不硬编码第二份） -->
+      <a class="repo-link" id="repoLink" href="https://github.com/XUNDEI/Nornium-ServerDev"
+         target="_blank" rel="noopener noreferrer" title="服务器项目主页（GitHub）">GitHub 项目主页</a>
     </div>
   </aside>
 
@@ -116,6 +122,14 @@
           <svg class="ic" viewBox="0 0 24 24"><path d="M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01"/></svg>运行状态与运维</button>
         <button class="tab" data-tab="console">
           <svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7 9l3 3-3 3M12.5 15H17"/></svg>服务器控制台</button>
+      </div>
+      <!-- 游戏启动器区：启动游戏 + mod 加载管理，同样不依赖存档 -->
+      <div class="nav-group" id="navGame" hidden>
+        <span class="nav-label">游戏启动器</span>
+        <button class="tab" data-tab="gamelaunch">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v9M6.5 6.5a8 8 0 1 0 11 0"/></svg>启动与状态</button>
+        <button class="tab" data-tab="mods">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Mod 管理</button>
       </div>
     </nav>
 
@@ -199,12 +213,15 @@
         <li>玩家<b>离线</b>时写盘保存，重新登录后生效。</li>
         <li>切换存档前请先保存或清空清单，避免改动丢失。</li>
       </ul>
-      <h4>2. 两个工作区</h4>
+      <h4>2. 三个工作区</h4>
       <ul>
-        <li>左栏顶部可以切换<b>存档管理</b>与<b>服务器管理</b>，两块互不依赖：服务器管理不需要先选中存档。</li>
+        <li>左栏顶部可以切换<b>存档管理</b>、<b>服务器管理</b>与<b>游戏启动器</b>，三块互不依赖：后两者不需要先选中存档。</li>
         <li><b>存档管理</b>：总览（昵称/货币）、背包、角色（含星位/命座）、抽卡、商城、剧情，以及存档备份（导出/快照）。</li>
         <li><b>服务器管理</b>：服务端状态、立即备份、踢人、导入、清档、停服，以及实时日志控制台（可直接执行 load / export 等指令）。</li>
+        <li><b>游戏启动器</b>：一键经 Steam 拉起游戏、查看游戏目录与补丁状态；Mod 管理页负责导入、启用排序、冲突报告，
+          并把启用中的 mod 合并打包成单个补丁 pak 装进游戏（详见项目 docs/MOD_FORMAT.md）。</li>
         <li>主页（未选存档时）优先显示服务器状态，下面才是选档引导。</li>
+        <li>没选存档时右侧的存档页标签是<b>禁用</b>的（灰掉、鼠标悬停有提示），其余工作区不受影响。</li>
       </ul>
       <h4>3. 等级与经验</h4>
       <ul>
@@ -214,14 +231,36 @@
       <h4>4. 为什么有些武器不能发</h4>
       <ul>
         <li>标着<b>未实装</b>的武器在客户端没有模型、图标与技能行，发下去会让武器详情面板出错，所以编辑器拒绝发放。</li>
+        <li>「专武」是每名可玩角色的 7★ 专属武器（官方数据映射，角色弹窗里写明名字与 6★ 基础形态；
+          两形态数值完全相同，7★ 是最终形态）。只要全部武器就用「发放全部高稀有度武器」。</li>
       </ul>
-      <h4>5. 危险操作</h4>
+      <h4>5. 角色精细化编辑</h4>
       <ul>
+        <li>点角色卡片打开弹窗后：<b>逐孔勾选星位</b>（带「全选 / 只留初始孔」，悬停可看孔位与条件）、
+          <b>逐件勾选皮肤</b>并指定<b>穿戴</b>（战斗 / 机甲 / 主城三类）、<b>逐个技能改等级</b>、
+          给六个部位<b>换装或卸下机甲</b>（卸下的会回到背包）。</li>
+        <li>这些改动同样先进「待保存清单」，按你勾选的<b>精确清单</b>提交（不是「全部解锁」那种粗粒度开关）。</li>
+      </ul>
+      <h4>6. 服务器控制台</h4>
+      <ul>
+        <li>输入框支持 <code>Tab</code> <b>自动补全</b>（指令名 / 账号 / 快照目录 / 角色 id），
+          <code>↑</code><code>↓</code> 在候选面板里移动（没开面板时是翻历史），回车执行。</li>
+        <li>输出按级别着色：普通 / 调试 / <b>警告</b> / <b>错误</b> / «指令回显»，
+          底部有图例；危险指令执行前会弹确认框。</li>
+      </ul>
+      <h4>7. 危险操作</h4>
+      <ul>
+        <li>危险区域与危险按钮都用<b>红色</b>标出（清空存档、停止服务端、清空月卡、背包行内删除）。</li>
         <li>清空存档需要手动输入确认文字，停止服务端点击确认即可；清档前会自动留一份 <code>data_wipe_*</code> 快照。</li>
       </ul>
-      <h4>6. 快捷键</h4>
+      <h4>8. 快捷键</h4>
       <ul>
         <li><code>Ctrl</code>/<code>Cmd</code> + <code>S</code> 保存修改 · <code>/</code> 聚焦搜索框 · <code>Esc</code> 关闭弹窗/抽屉</li>
+      </ul>
+      <h4>9. 项目主页</h4>
+      <ul>
+        <li>本服务端是开源项目：<a href="https://github.com/XUNDEI/Nornium-ServerDev" target="_blank" rel="noopener noreferrer">github.com/XUNDEI/Nornium-ServerDev</a></li>
+        <li>它是<b>完全免费</b>的；遇到报错、想反馈或想拿新版，都先看这个页面（侧栏底部也有入口）。</li>
       </ul>
     </div>
     <div class="modal-foot">
