@@ -692,9 +692,11 @@ function setTab(tab) {
 
 function pageHeadHtml(tab) {
   const def = TABS[tab] || { label: '', desc: '' };
+  // mod 管线仍在早期迭代，页头标 beta 提示功能与格式都可能变动。
+  const beta = tab === 'mods' ? ' <span class="badge" title="mod 管线仍在早期迭代，功能与格式都可能变动">beta</span>' : '';
   return `<div class="page-head">
       <div>
-        <h2>${esc(def.label)}</h2>
+        <h2>${esc(def.label)}${beta}</h2>
         <p>${esc(def.desc)}</p>
       </div>
     </div>`;

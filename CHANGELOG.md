@@ -3,7 +3,7 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 与
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式。
 
-## [Unreleased]
+## [0.3.0] - 2026-10-07
 
 ### Added
 
@@ -242,6 +242,8 @@
 - **`test:skins` / `test:editor-ui` / `test:setup` 的描述与断言同步更新**（新增
   `test:log`；`editor_ui_check` 覆盖锁定标签、危险红、控制台补全与分级着色、
   角色精细化区块、仓库地址入口；`setup_check` 覆盖紧凑输出档位与仓库地址）。
+- **编辑器「Mod 管理」页标题加 beta 后缀**：mod 管线（导入/合并/打包安装/服务端数据表补丁）
+  尚在早期迭代，页头标注 beta 以提示功能与格式都可能变动。
 
 ## [0.2.0] - 2026-09-27
 
