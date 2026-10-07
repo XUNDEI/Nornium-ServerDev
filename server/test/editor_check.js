@@ -274,6 +274,24 @@ const post = (port, p, data) => API(port, p, {
     const gOn = await post(port, '/editor/api/server/universe_grant', { enabled: true });
     check(gOn.body.data.enabled === true && gOn.body.data.floor === 50,
       'floor survives a toggle-only update');
+
+    // ---------------- 商城限购开关（mall_limit 端点）----------------
+    // 同样写 GHS_RUNTIME_CONFIG 指向的临时文件；关闭后每周/每月/终身限购全部跳过。
+    const srvInfo2 = await API(port, '/editor/api/server');
+    check(srvInfo2.body.data.mall_limit && srvInfo2.body.data.mall_limit.disabled === false,
+      `server info exposes the default mall limit state (${JSON.stringify(srvInfo2.body.data.mall_limit)})`);
+    const mOff = await post(port, '/editor/api/server/mall_limit', { disabled: true });
+    check(mOff.body.code === 0 && mOff.body.data.disabled === true,
+      'POST mall_limit disables purchase limits');
+    check(require('../src/game/mall').limitDisabled() === true,
+      'limitDisabled (live buy path) sees the change without a restart');
+    const savedCfg2 = JSON.parse(fs.readFileSync(process.env.GHS_RUNTIME_CONFIG, 'utf8'));
+    check(savedCfg2.mall_limit_disabled === true,
+      'the runtime config file carries mall_limit_disabled');
+    check(savedCfg2.universe_auto_grant === true && savedCfg2.universe_resource_floor === 50,
+      'the mall_limit write preserved the other runtime-config keys');
+    const mOn = await post(port, '/editor/api/server/mall_limit', { disabled: false });
+    check(mOn.body.data.disabled === false, 'POST mall_limit re-enables purchase limits');
   }
 
   // ---------------- 等级 / 光淬编辑 ----------------

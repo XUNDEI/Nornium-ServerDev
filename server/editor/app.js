@@ -325,6 +325,7 @@ function describeOp(op) {
   switch (op.op) {
     case 'set_player_name': return { title: '玩家昵称', sub: `→ ${op.name}` };
     case 'set_currency': return { title: `货币 · ${itemName(op.item_id)}`, sub: `→ ${fmt(op.count)}` };
+    case 'set_universe_res': return { title: `宇宙资源 · ${op.res_type === 2 ? '金刚凝胶' : `资源 ${op.res_type}`}`, sub: `→ ${fmt(op.count)}` };
     case 'set_item_count': return { title: `数量 · ${wname}`, sub: `→ ${fmt(op.count)}` };
     case 'remove_item': return { title: `删除道具 · ${wname}`, sub: `uuid ${op.item_uuid}` };
     case 'add_item': return { title: `添加道具 · ${itemName(op.item_id)}`, sub: `× ${fmt(op.count)}` };
@@ -851,12 +852,20 @@ function renderOverview(el) {
       ` : '<p class="hint-line">该存档当前没有进行中的远航——宇宙资源只存在于局内，先在游戏里开一局再回来改。</p>'}
       <div class="row">
         <label class="field grow uni-grant-row">
-          <span><input type="checkbox" id="uniGrantChk"> 资源自动补发（全局：消耗后低于保底线自动补满，关掉即恢复官方经济）</span>
+          <span><input type="checkbox" id="uniGrantChk"> 资源自动补发（全局：游戏内每次消耗资源后低于保底线就自动补满，关掉即恢复官方经济）</span>
         </label>
         <div class="field" style="max-width:140px"><label>保底线</label>
           <input type="number" id="uniGrantFloor" min="0" value="100"></div>
       </div>
-      <p class="hint-line">开关与保底线写进 runtime-config.json，改完立即生效、对所有玩家生效，无需重启服务端。</p>
+      <p class="hint-line">开关与保底线写进 runtime-config.json（server\\src\\ 下这份，不是 server\\ 下的启动向导配置），改完立即生效、对所有玩家生效，无需重启服务端。
+        补发在游戏内每次消耗资源时触发——资源已归零且没有任何付得起的操作时，不会凭空补发，可先回这里手动发一笔。</p>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>商城限购</h3><span class="hint">全局开关，对所有玩家生效</span></div>
+      <label class="field grow mall-limit-row">
+        <span><input type="checkbox" id="mallLimitChk"> 关闭商城全部限购（每周 / 每月 / 终身）</span>
+      </label>
+      <p class="hint-line">内购商品的每周限购默认每周一凌晨 4 点重置。勾选后服务端不再做任何限购校验，已售罄的商品立即恢复可买；写进 runtime-config.json，改完立即生效、无需重启服务端。</p>
     </div>`);
 
   $('#renameBtn').addEventListener('click', () => {
@@ -865,7 +874,20 @@ function renderOverview(el) {
     stage({ op: 'set_player_name', name });
     toast('已加入待保存清单');
   });
+  // 数字输入框统一的两段式监听：
+  //   input  —— 边输边把当前值放进待保存清单（同 key 自动覆盖）。必须用它而不是只靠
+  //             change：显示值来自打开存档时的快照，玩家在游戏里花掉后编辑器不知道，
+  //             重输一个「和显示值相同」的数字时 DOM 的 change 根本不会触发，
+  //             表现就是「再发 150 凝胶没反应，必须先改成别的数」（货币框同理）。
+  //   change —— 失焦时规范化显示（空/负数归 0）并 toast 一次。
+  const liveStage = (inp, makeOp) => {
+    if (inp.value === '') return; // 正在清空输入，等失焦走 change 的规范化
+    const v = Math.trunc(Number(inp.value));
+    if (Number.isNaN(v)) return;
+    stage(makeOp(Math.max(0, v)));
+  };
   wrap.querySelectorAll('input[data-currency]').forEach((inp) => {
+    inp.addEventListener('input', () => liveStage(inp, (v) => ({ op: 'set_currency', item_id: Number(inp.dataset.currency), count: v })));
     inp.addEventListener('change', () => {
       const v = Math.max(0, Math.trunc(Number(inp.value) || 0));
       inp.value = v;
@@ -874,6 +896,7 @@ function renderOverview(el) {
     });
   });
   wrap.querySelectorAll('input[data-unires]').forEach((inp) => {
+    inp.addEventListener('input', () => liveStage(inp, (v) => ({ op: 'set_universe_res', res_type: Number(inp.dataset.unires), count: v })));
     inp.addEventListener('change', () => {
       const v = Math.max(0, Math.trunc(Number(inp.value) || 0));
       inp.value = v;
@@ -881,12 +904,38 @@ function renderOverview(el) {
       toast('已加入待保存清单');
     });
   });
-  // 自动补发开关：全局配置，改完立即 POST，不走「待保存清单」（它不是存档数据）。
-  // 当前值从 /editor/api/server 异步补上（serverInfo.universe_grant）。
+  // 打开总览页时后台刷新一次存档快照：游戏里花掉的货币 / 资源要及时反映到输入框里，
+  // 否则显示的一直是旧值。只刷新没有待保存项、也没被聚焦的输入框，别冲掉正在编辑的内容。
+  if (!S.pending.length) {
+    api(`/editor/api/player/${S.id}`).then((d) => {
+      S.doc = d.doc;
+      wrap.querySelectorAll('input[data-unires], input[data-currency]').forEach((inp) => {
+        if (document.activeElement === inp) return;
+        if (inp.dataset.unires != null) {
+          const t = Number(inp.dataset.unires);
+          if (hasPending((p) => p.op === 'set_universe_res' && p.res_type === t)) return;
+          const rv = (S.doc.universe && S.doc.universe.active && S.doc.universe.res_value[t]) || 0;
+          inp.value = Number(rv) || 0;
+        } else {
+          const cid = Number(inp.dataset.currency);
+          if (hasPending((p) => p.op === 'set_currency' && p.item_id === cid)) return;
+          const cur = S.doc.bag.items.find((it) => it.item_id === cid);
+          inp.value = cur ? cur.count : 0;
+        }
+      });
+    }).catch(() => { /* 拉不到就保持当前显示 */ });
+  }
+  // 两个全局开关（资源自动补发 / 商城限购）：改完立即 POST，不走「待保存清单」
+  // （它们不是存档数据）。当前值从 /editor/api/server 异步补上（serverInfo）。
+  // 回填完成前控件保持禁用：否则「回填还没回来就改保底线」会把未勾选的
+  // enabled=false 一并 POST 出去，把刚开的开关静默关掉。
   const grantChk = $('#uniGrantChk');
   const grantFloor = $('#uniGrantFloor');
-  if (grantChk) {
+  const limitChk = $('#mallLimitChk');
+  if (grantChk || limitChk) {
+    let cfgReady = false;
     const applyGrant = async () => {
+      if (!cfgReady) return;
       const enabled = grantChk.checked;
       const floor = Math.max(0, Math.trunc(Number(grantFloor.value) || 0));
       try {
@@ -901,14 +950,40 @@ function renderOverview(el) {
         toast(err.message, 'err');
       }
     };
-    grantChk.addEventListener('change', applyGrant);
-    grantFloor.addEventListener('change', applyGrant);
+    const applyLimit = async () => {
+      if (!cfgReady) return;
+      try {
+        const r = await api('/editor/api/server/mall_limit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ disabled: limitChk.checked }),
+        });
+        limitChk.checked = r.disabled;
+        toast(r.disabled ? '商城限购已关闭，已售罄商品恢复可买' : '商城限购已恢复官方规则');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+    if (grantChk) {
+      grantChk.addEventListener('change', applyGrant);
+      grantFloor.addEventListener('change', applyGrant);
+      grantChk.disabled = true;
+      grantFloor.disabled = true;
+    }
+    if (limitChk) {
+      limitChk.addEventListener('change', applyLimit);
+      limitChk.disabled = true;
+    }
     api('/editor/api/server').then((s) => {
-      if (s.universe_grant) {
+      if (grantChk && s.universe_grant) {
         grantChk.checked = !!s.universe_grant.enabled;
         grantFloor.value = s.universe_grant.floor;
       }
-    }).catch(() => { /* 拉不到就保持默认值，开关仍可用 */ });
+      if (limitChk && s.mall_limit) limitChk.checked = !!s.mall_limit.disabled;
+    }).catch(() => { /* 拉不到就保持默认值，开关仍可用 */ }).finally(() => {
+      cfgReady = true;
+      if (grantChk) { grantChk.disabled = false; grantFloor.disabled = false; }
+      if (limitChk) limitChk.disabled = false;
+    });
   }
 }
 

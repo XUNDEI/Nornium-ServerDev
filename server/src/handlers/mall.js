@@ -6,6 +6,7 @@ const daily = require('../game/daily');
 const { savePlayer, requirePlayer } = require('./sync');
 const {
   buildMallListInfo, monthCardInfo, MONTH_CARD_ITEM_ID, MONTH_CARD_DAYS,
+  limitDisabled, refreshWeeklyLimits,
 } = require('../game/mall');
 
 let orderId = Math.floor(Date.now() / 1000) % 100000000;
@@ -84,8 +85,12 @@ function purchase(session, req, viaOrder) {
     session.send(viaOrder ? 'res_create_order' : 'res_mall_buy', {}, 1);
     return null;
   }
+  // 购买前先做每周限购的惰性重置（跨过周一 04:00 就清零 limitType=3 的已购次数），
+  // 这样「过周后直接购买」（不先拉列表）也不会被上周的记录挡住。
+  refreshWeeklyLimits(session.player);
   const times = session.player.mall.purchase[itemId] || 0;
-  if ((cfg.limitTimes ?? 0) > 0 && times + count > cfg.limitTimes) {
+  // 限购开关关闭时不校验 limitTimes（购买记录照常累计，重开开关后按记录重新生效）。
+  if (!limitDisabled() && (cfg.limitTimes ?? 0) > 0 && times + count > cfg.limitTimes) {
     session.send(viaOrder ? 'res_create_order' : 'res_mall_buy', {}, 4); // PURCHASE_LIMIT
     return null;
   }

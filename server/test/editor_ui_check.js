@@ -38,6 +38,15 @@ function check(cond, msg) {
 
 const htmlIds = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
 
+// 总览页两种数字输入框的假元素：renderOverview 会对它们 addEventListener('input'/'change')，
+// 测试靠手动触发 input 事件来验证「重输相同数字也会进待保存清单」（DOM change 对
+// 同值输入不触发，这正是修掉的前端坑）。
+const fireable = () => ({ value: '', dataset: {}, listeners: {},
+  addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
+  fire(type) { (this.listeners[type] || []).forEach((fn) => fn()); } });
+const uniresEls = [1, 2, 3, 4].map((t) => Object.assign(fireable(), { dataset: { unires: String(t) } }));
+const currencyEls = [Object.assign(fireable(), { dataset: { currency: '9001' } })];
+
 function makeEl(id) {
   return {
     id,
@@ -63,6 +72,11 @@ function makeEl(id) {
       if (sel === '.account') return accountEls;
       if (sel === '.char-card') return charCardEls;
       if (sel === '.tab') return tabEls;
+      // 总览页的数字输入框（含「A, B」合并选择器：真实 DOM 会同时返回两类）
+      const allInputs = [...uniresEls, ...currencyEls];
+      if (sel.includes('input[data-unires]') && sel.includes('input[data-currency]')) return allInputs;
+      if (sel.includes('input[data-unires]')) return uniresEls;
+      if (sel.includes('input[data-currency]')) return currencyEls;
       return [];
     },
     querySelector() { return makeEl(`${id} > q`); },
@@ -281,6 +295,11 @@ function respond(url) {
     };
   }
   if (url.includes('/api/backups')) return { code: 0, data: { backups: [{ name: 'data_wipe_1', path: 'D:/x/data_wipe_1', mtime: 0 }] } };
+  if (/\/api\/server\/(universe_grant|mall_limit)/.test(url)) {
+    // 子路径 POST 必须排在通用 /api/server 分支之前（includes 会把它们吞掉）
+    if (url.includes('universe_grant')) return { code: 0, data: { enabled: false, floor: 50 } };
+    return { code: 0, data: { disabled: true } };
+  }
   if (url.includes('/api/server')) {
     return {
       code: 0,
@@ -289,11 +308,9 @@ function respond(url) {
         tcp_port: 8101, http_port: 9089, started_at: Date.now(), uptime_seconds: 61,
         backups: 1, can_stop: true, unreleased_weapons: 10,
         universe_grant: { enabled: true, floor: 100 },
+        mall_limit: { disabled: false },
       },
     };
-  }
-  if (/\/api\/server\/universe_grant/.test(url)) {
-    return { code: 0, data: { enabled: false, floor: 50 } };
   }
   if (/\/api\/player\/\d+$/.test(url)) return { code: 0, data: { doc } };
   if (/\/api\/console\/tail/.test(url)) {
@@ -513,6 +530,30 @@ const tick = async (n = 1) => { for (let i = 0; i < n; i += 1) await new Promise
     const floor = byId('uniGrantFloor');
     check(chk && chk.checked === true && floor && String(floor.value) === '100',
       `开关状态从 /editor/api/server 异步补上（checked=${chk && chk.checked}, floor=${floor && floor.value}）`);
+    check(/id="mallLimitChk"/.test(ov) && /关闭商城全部限购/.test(ov) && /周一凌晨 4 点/.test(ov),
+      '总览页有「商城限购」开关卡片（注明周重置点为周一凌晨 4 点）');
+    const limitChk = byId('mallLimitChk');
+    check(limitChk && limitChk.checked === false && limitChk.disabled === false,
+      `商城限购开关状态回填后可用（checked=${limitChk && limitChk.checked}, disabled=${limitChk && limitChk.disabled}）`);
+  }
+
+  // ---------------- 数字输入框：重输相同数值也要进待保存清单（坑：DOM change 对同值不触发） ----------------
+  {
+    tabEls.find((t) => t.dataset.tab === 'overview').fn();
+    await tick(4);
+    const gel = uniresEls[1]; // 资源 2 = 金刚凝胶
+    gel.value = '150';
+    gel.fire('input'); // 只发 input、不发 change —— 正是「显示值没变、重输相同数字」的场景
+    await tick(1);
+    const list = byId('pendingList') ? byId('pendingList').innerHTML : '';
+    check(/宇宙资源 · 金刚凝胶/.test(list) && /→ 150/.test(list),
+      '只发 input 事件也能把「金刚凝胶 → 150」放进待保存清单（不再依赖 change）');
+    const coin = currencyEls[0]; // 9001 金星贝
+    coin.value = '999';
+    coin.fire('input');
+    await tick(1);
+    const list2 = byId('pendingList') ? byId('pendingList').innerHTML : '';
+    check(/货币 · 金星贝/.test(list2) && /→ 999/.test(list2), '货币输入框同样走 input 监听');
   }
   {
     tabEls.find((t) => t.dataset.tab === 'bag').fn();

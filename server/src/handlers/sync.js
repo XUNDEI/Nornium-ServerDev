@@ -91,7 +91,9 @@ function reqShopList(session) {
 
 function reqMallList(session) {
   if (!requirePlayer(session)) return;
-  const { buildMallListInfo } = require('../game/mall');
+  const { buildMallListInfo, refreshWeeklyLimits } = require('../game/mall');
+  // 登录初始序列也会走到这里：先把上周的每周限购记录清掉再下发，客户端一进游戏就解锁。
+  refreshWeeklyLimits(session.player);
   session.send('res_mall_list', { mall_list_info: buildMallListInfo(session.player) });
 }
 

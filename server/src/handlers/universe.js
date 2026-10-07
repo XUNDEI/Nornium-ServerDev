@@ -1,6 +1,4 @@
 // Universe (Srpg roguelike) message handlers.
-const fs = require('fs');
-const path = require('path');
 const gd = require('../gamedata');
 const items = require('../game/items');
 const U = require('../game/universe');
@@ -60,8 +58,7 @@ function sendUniverseInfo(session, u, resChanges, hpDelta) {
 // 低于本次费用则先补足本次费用再扣（切换/购买不再弹 code:4）。
 // 关闭/调整：runtime-config.json 里加 "universe_auto_grant": false
 // 或 "universe_resource_floor": <数值>（默认 100，与开局资源一致）。
-const RUNTIME_CONFIG_FILE = process.env.GHS_RUNTIME_CONFIG
-  || path.join(__dirname, '..', 'runtime-config.json');
+const runtimeConfig = require('../runtime-config');
 
 function grantCfg() {
   // 测试注入口：GHS_UNIVERSE_GRANT={"on":true,"floor":100} 时优先于配置文件，
@@ -74,25 +71,21 @@ function grantCfg() {
       }
     } catch (_) { /* 非法内容走默认 */ }
   }
-  try {
-    const cfg = JSON.parse(fs.readFileSync(RUNTIME_CONFIG_FILE, 'utf8'));
-    const off = cfg.universe_auto_grant === false || cfg.universe_auto_grant === 0
-      || cfg.universe_auto_grant === 'false' || cfg.universe_auto_grant === '0';
-    const floor = Math.max(0, Math.trunc(Number(cfg.universe_resource_floor ?? 100)) || 0);
-    return { on: !off, floor };
-  } catch (_) { /* 没有配置文件时走默认 */ }
-  return { on: true, floor: 100 };
+  const cfg = runtimeConfig.read();
+  const off = cfg.universe_auto_grant === false || cfg.universe_auto_grant === 0
+    || cfg.universe_auto_grant === 'false' || cfg.universe_auto_grant === '0';
+  const floor = Math.max(0, Math.trunc(Number(cfg.universe_resource_floor ?? 100)) || 0);
+  return { on: !off, floor };
 }
 
 // 编辑器「资源自动补发」开关的写入口：把 universe_auto_grant / universe_resource_floor
 // 合并进 runtime-config.json（保留其余键）。grantCfg 在每次消耗时重读文件，
 // 所以改完立刻生效，无需重启。返回与 grantCfg 相同形状的生效状态。
 function setGrantConfig({ enabled, floor } = {}) {
-  let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(RUNTIME_CONFIG_FILE, 'utf8')); } catch (_) { /* 没有就新建 */ }
-  if (enabled !== undefined) cfg.universe_auto_grant = !!enabled;
-  if (floor !== undefined) cfg.universe_resource_floor = Math.max(0, Math.trunc(Number(floor)) || 0);
-  fs.writeFileSync(RUNTIME_CONFIG_FILE, JSON.stringify(cfg, null, 2) + '\n');
+  const patch = {};
+  if (enabled !== undefined) patch.universe_auto_grant = !!enabled;
+  if (floor !== undefined) patch.universe_resource_floor = Math.max(0, Math.trunc(Number(floor)) || 0);
+  runtimeConfig.write(patch);
   const state = grantCfg();
   log.info(`[editor] 资源自动补发 → ${state.on ? '开' : '关'}（保底线 ${state.floor}）`);
   return state;

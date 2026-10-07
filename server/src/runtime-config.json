@@ -1,4 +1,4 @@
 {
-  "universe_auto_grant": false,
+  "universe_auto_grant": true,
   "universe_resource_floor": 100
 }

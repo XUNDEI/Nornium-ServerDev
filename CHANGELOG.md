@@ -5,6 +5,52 @@
 
 ## [0.3.0] - 2026-10-07
 
+### 追加更新（2026-10-07）
+
+#### Fixed
+
+- **内购「每周限购」过周不重置（一直卡已售罄）**：服务端此前只校验 `d_mall.limitTimes`
+  总量、从不读 `limitType`，`mall.purchase` 终身累计也没有任何周清零逻辑，而客户端
+  （`UI_TopUp_Shop_C.lua:540`）只比较 `limitTimes - purchase_times`，于是每周限购商品
+  买满后永远显示售罄。现在 `game/mall.js` 新增 `weeklyBoundary`（每周一 **04:00**，与
+  日常刷新同一时刻起点）与 `refreshWeeklyLimits`（惰性重置：拉商城列表 / 购买前跨过
+  周边界就把 limitType=3 的已购次数清零，游标 `mall.week_tick_seconds`；终身限购不受
+  影响）；周限购条目的 `refresh_seconds` 改为下发距下次重置的秒数。
+  测试：新增 `test/mall_check.js`（买满→跨周→再买成功、weeklyBoundary 数学、终身限购
+  不受周重置影响、开关关闭/重开）。
+
+- **编辑器重输相同数值不生效（「手动发 150 金刚凝胶，用完了想再发必须先改一个数」）**：
+  总览页货币 / 宇宙资源输入框显示的是打开存档时的快照，游戏里花掉后编辑器并不知道；
+  DOM 的 `change` 事件对「提交值 = 聚焦时值」根本不触发，重输相同数字就被当成没有改动。
+  现在输入框同时挂 `input` 监听（边输边进待保存清单，同 key 自动覆盖），进入总览页且
+  无待保存项时后台重拉一次存档刷新显示值；`set_universe_res` 在待保存清单里也显示人话
+  （「宇宙资源 · 金刚凝胶 → 150」）而不再是 JSON。测试：`test/editor_ui_check.js`
+  「只发 input 事件也能进待保存清单」段。
+
+- **全局开关的回填竞态**：总览页开关（资源自动补发 / 商城限购）当前状态是异步回填的，
+  回填完成前控件保持禁用——否则回填还没回来就改「保底线」会把未勾选的
+  `enabled=false` 一并 POST 出去，把开关静默关掉。
+
+#### Added
+
+- **「关闭商城全部限购」开关**：编辑器「总览」页新增「商城限购」卡片
+  （`POST /editor/api/server/mall_limit`，写 `server/src/runtime-config.json` 的
+  `mall_limit_disabled`，立即生效免重启、对所有玩家生效）。关闭后每周 / 每月 / 终身
+  限购全部跳过校验，已售罄商品立即恢复可买（列表不再下发限购商品的已购条目）；购买
+  记录照常累计，重开开关后按记录恢复限购。测试：`test/editor_check.js` mall_limit
+  端点段 + `test/editor_ui_check.js` 卡片渲染/回填断言。
+
+#### Changed
+
+- **`runtime-config.json` 读写统一收敛到新模块 `src/runtime-config.js`**
+  （`GHS_RUNTIME_CONFIG` 可改址、合并写回保留其余键），`handlers/universe.js` 与
+  `game/mall.js` 共用。**勘误**：本条目的首发说明曾把宇宙资源自动补发的开关写成
+  `server/runtime-config.json`——运行时开关实际全在 **`server/src/runtime-config.json`**
+  （`server\` 下同名文件是 setup.js 启动向导的配置，手改它不会生效，见坑 50）；
+  手改配置不生效的反馈即源于此。总览页的开关说明文案已注明两个文件的区别。
+
+### Added
+
 ### Added
 
 - **「角色 → 7★ 专武」官方映射落地，专武发放全面修正**：

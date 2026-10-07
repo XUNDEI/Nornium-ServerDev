@@ -25,6 +25,7 @@ const weaponData = require('./game/weapon_data');
 const { liveSessionCount, kickAllSessions } = require('./session');
 const { onlineAccounts } = require('./handlers/login');
 const { setGrantConfig, grantCfg } = require('./handlers/universe');
+const { setLimitConfig, limitDisabled } = require('./game/mall');
 const consoleCmds = require('./console');
 const mods = require('./mods');
 const { version, homepage } = require('../package.json');
@@ -970,6 +971,8 @@ function serverInfo(hooks) {
     unreleased_weapons: weaponData.UNRELEASED_WEAPON_IDS.size,
     // 总览页「宇宙资源」卡片用它渲染自动补发开关的当前状态
     universe_grant: (() => { const s = grantCfg(); return { enabled: s.on, floor: s.floor }; })(),
+    // 总览页「商城限购」卡片用它渲染限购开关的当前状态
+    mall_limit: { disabled: limitDisabled() },
     // 前端页脚/帮助里的「项目主页」用它，避免在 html 里再抄一份地址。
     repo_url: homepage || 'https://github.com/XUNDEI/Nornium-ServerDev',
   };
@@ -1050,6 +1053,13 @@ async function handleServerAction(req, res, url, body, hooks) {
       floor: body ? body.floor : undefined,
     });
     return ok(res, { enabled: state.on, floor: state.floor });
+  }
+
+  // 商城限购开关（全局，关闭后每周/每月/终身限购全部不再限制，立即生效无需重启）
+  if (url === '/editor/api/server/mall_limit') {
+    const state = setLimitConfig({ disabled: body ? body.disabled : undefined });
+    log.info(`[editor] 商城限购 → ${state.disabled ? '已关闭' : '保留官方限购'}`);
+    return ok(res, state);
   }
 
   // 立即打一份快照（不进维护窗口：快照只是拷贝，不需要一致性保证）

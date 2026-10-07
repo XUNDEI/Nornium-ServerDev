@@ -32,3 +32,6 @@ desktop.ini
 
 # repak 导出的 pak 条目清单（tools/check_weapon_assets.js 的输入，随时可重新生成）
 reference/paklist*.txt
+
+# 发行压缩包的构建产物（脚本/手工打包输出到这里）
+dist/
