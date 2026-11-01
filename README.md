@@ -46,7 +46,7 @@ Nornium 官方服务器已停止运营，官方客户端已无法进入游戏。
 ## 运行原理
 
 ```
-Steam 启动客户端
+启动客户端（直接运行游戏主程序 exe）
    │
    ├─ HTTP POST 127.0.0.1:9089/client/system/serverStatus   ← 登录门（返回 status=0）
    │
@@ -87,7 +87,7 @@ Steam 启动客户端
    找不到时才请你填一句游戏路径，例如 `D:\Steam\steamapps\common\Nornium`
 4. 自动把指向私服的 `channel.lua` / `version.lua` 写进 `%LOCALAPPDATA%\Nornium\Saved\`
    —— 不需要你手动拷任何文件
-5. 问你要不要在服务端就绪后直接用 Steam 拉起游戏
+5. 问你要不要在服务端就绪后自动启动游戏
 
 以后再双击就是秒开：路径缓存存在 `server/runtime-config.json`。想重新配置就删掉它，
 或者跑 `cd server && node setup.js --reset`。
@@ -117,8 +117,10 @@ Steam 启动客户端
 > `npm run test:setup` 会断言这条规矩。唯一例外是 `where node` 失败分支——
 > 那时还没有 Node 可用，只能写 ASCII 英文。
 
-> **提示**：游戏也必须从 Steam 启动——直接双击 exe 会被 Steamworks 校验拦下。
-> 「自动拉起」用的是 `steam://rungameid/2877160`；不想用了删掉 `server/auto-launch.flag`。
+> **提示**：游戏已从 Steam 下架（无法再入库），但客户端拿不到 Steam 授权时会自动降级到
+> NULL 模式——直接运行游戏主程序即可，全程不需要 Steam。「自动拉起」由
+> `server/launch-game.js` 完成（flag `server/auto-launch.flag` 存在才执行，内容为游戏主程序
+> 路径）；不想用了删掉这个 flag 文件。
 
 ### 2. 启动游戏并注册
 
@@ -307,8 +309,9 @@ ServerDev/
 │   ├── src/console.js        服务端控制台指令（restore / load [<备份目录>] / export [<目录>] / allweapons [<账号>] / allexclusive [<账号>] / addchar <账号> <角色id|all> / allskins [<账号>] / stop / status / help）
 │   ├── package.json
 │   ├── preflight.js          加密/协议预检脚本
+│   ├── launch-game.js        直接启动游戏主程序（bat 自动拉起与手动 node 都用它）
 │   ├── runtime-config.json   向导产物（gitignore）：缓存的游戏路径
-│   ├── auto-launch.flag      向导产物（gitignore）：存在则自动拉起 Steam 游戏
+│   ├── auto-launch.flag      向导产物（gitignore）：存在则自动启动游戏（内容=游戏主程序路径）
 │   ├── data/                 存档（gitignore）：accounts.json + players/<id>.json
 │   ├── data_wipe_* / data_preimport_*   restore / load 自动留的快照（gitignore）
 │   ├── src/
@@ -349,7 +352,7 @@ ServerDev/
 | 存档目录 | `server/data/` | `accounts.json` + `players/<id>.json` |
 | 存档快照 | `server/data_wipe_*` / `data_preimport_*` | `restore` / `load <备份目录>` 自动留档，可删 |
 | 游戏路径缓存 | `server/runtime-config.json` | 首次启动向导生成，删掉即重新配置 |
-| 自动拉起游戏 | `server/auto-launch.flag` | 存在才拉起（`steam://rungameid/2877160`） |
+| 自动启动游戏 | `server/auto-launch.flag` | 存在才拉起（`node server/launch-game.js` 直接运行 exe） |
 
 ## 测试
 

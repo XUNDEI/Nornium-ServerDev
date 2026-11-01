@@ -643,7 +643,7 @@ const TABS = {
   backup: { label: '备份', desc: '把当前存档导出到指定目录，并查看历史上自动留下的快照。' },
   server: { label: '服务器管理', desc: '服务端状态与运维操作（备份 / 踢人 / 导入 / 清档 / 停服）；这一区不需要先选中存档。' },
   console: { label: '服务器控制台', desc: '实时显示服务端输出，也可以直接执行控制台指令（help 看列表）；清档等危险操作会先要求确认。' },
-  gamelaunch: { label: '启动与状态', desc: '一键经 Steam 拉起游戏，查看游戏目录、原版 pak 与 mod 补丁的安装状态。' },
+  gamelaunch: { label: '启动与状态', desc: '一键启动游戏（直接运行 exe），查看游戏目录、原版 pak 与 mod 补丁的安装状态。' },
   mods: { label: 'Mod 管理', desc: '导入 / 启用 / 排序 / 删除 mod，查看冲突报告；构建会把启用中的 mod 合并成单个补丁 pak 装进游戏。' },
 };
 
@@ -1873,11 +1873,11 @@ async function renderGameLaunch(el) {
       </div>
       ${g.game_ok ? `
       <div class="actions" style="margin-top:14px">
-        <button class="btn primary" id="gLaunch">${icon('power')} 经 Steam 启动游戏</button>
+        <button class="btn primary" id="gLaunch">${icon('power')} 启动游戏</button>
         ${inst.stale ? `<span class="badge" style="color:var(--warn)">${icon('warning')} 游戏在上次构建后更新过：mod 可能不兼容，去 Mod 管理页重建一次</span>` : ''}
         ${inst.pak_exists ? `<button class="btn ghost" id="gUninstall">${icon('eraser')} 卸载 mod 补丁</button>` : ''}
       </div>
-      <p class="hint-line">必须经 Steam 拉起（steam://rungameid）——直接运行 exe 会因 Steamworks 检查退出。
+      <p class="hint-line">直接运行游戏主程序（GHS-Win64-Shipping.exe）——游戏绝版拿不到 Steam 授权时，客户端会自动降级到 NULL 模式，全程无需 Steam。
         ${inst.pak_exists && inst.built_at ? `补丁构建于 ${new Date(inst.built_at).toLocaleString('zh-CN')}，来自 ${(inst.built_from || []).length} 个 mod。` : '还没有装过 mod 补丁；去「Mod 管理」页导入并构建即可。'}</p>
       ` : `
       <p class="hint-line">还没找到游戏目录：先跑一次仓库根目录的 <b>点我启动.bat</b>（首次向导会定位游戏并写入
@@ -1901,7 +1901,7 @@ async function renderGameLaunch(el) {
   if (launchBtn) launchBtn.addEventListener('click', async () => {
     try {
       await gameApi('/editor/api/game/launch');
-      toast('已请求 Steam 启动游戏；登录界面随便填账号密码点「注册」即可进服');
+      toast('已启动游戏；登录界面随便填账号密码点「注册」即可进服');
     } catch (err) { toast(err.message, 'err'); }
   });
   const unBtn = wrap.querySelector('#gUninstall');

@@ -19,7 +19,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const log = require('./logger');
 const zip = require('./zip');
 
@@ -37,7 +37,6 @@ const PAK_NAME = 'GHSMods_P.pak';
 const STATE_FILE = path.join(MODS_DIR, '.launcher.json');
 const BACKUP_DIR = path.join(MODS_DIR, '.gamedata_backup');
 const BUILD_DIR = path.join(MODS_DIR, '.build');
-const STEAM_RUN_ID = 2877160;
 const PAK_PREFIX = 'Nornium/'; // pak 内路径必须以它开头（挂载点 ../../../，见原版 pak 的 info）
 
 const MOD_ID_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
@@ -650,18 +649,24 @@ function gameInfo() {
 
 // ------------------------------------------------------------ 启动游戏
 
-// 只能经 Steam 拉起（直接跑 exe 会因 Steamworks 检查退出，见坑 13）。
-// start "" "steam://..."：cmd 的 start 需要窗口标题占位，否则带引号的 URL 会被当标题。
+// 游戏绝版后拿不到 Steam 授权，客户端会自动降级 NULL 模式，直接运行 exe 即可（见坑 13）。
+// detached + unref：服务端不等游戏退出；GUI 程序没有控制台输出，stdio 直接丢弃。
 function launchGame() {
-  const res = spawnSync('cmd.exe', ['/d', '/s', '/c', 'start', '', `steam://rungameid/${STEAM_RUN_ID}`],
-    { encoding: 'utf8', timeout: 15000 });
-  if (res.error) throw new Error(`无法调起 Steam：${res.error.message}`);
-  log.info(`[mods] 已请求 Steam 启动游戏（appid ${STEAM_RUN_ID}）`);
-  return { launched: true, steam_url: `steam://rungameid/${STEAM_RUN_ID}` };
+  const root = gameRoot();
+  const exe = gameExePath(root);
+  if (!fs.existsSync(exe)) {
+    throw new Error(`游戏主程序不存在：${exe}（先重跑仓库根目录的「点我启动.bat」重新配置游戏路径）`);
+  }
+  const child = spawn(exe, [], { cwd: root || undefined, detached: true, stdio: 'ignore' });
+  // 不 unref 之前挂上 error 监听：spawn 失败（exe 损坏等）若无监听会变成未捕获异常打崩服务端
+  child.on('error', (err) => log.error(`[mods] 游戏进程启动失败：${err.message}`));
+  child.unref();
+  log.info(`[mods] 已启动游戏：${exe}`);
+  return { launched: true, exe };
 }
 
 module.exports = {
-  PAK_NAME, PAK_PREFIX, MODS_DIR, STEAM_RUN_ID,
+  PAK_NAME, PAK_PREFIX, MODS_DIR,
   validateMod, listMods, importFromZipBuffer, importFromZipFile, importFromDir,
   setEnabled, setOrder, removeMod,
   mergeFiles, buildInstalled, uninstall,

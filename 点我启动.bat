@@ -42,9 +42,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM setup.js already printed the step-2 hints; launch the game via Steam only
+REM setup.js already printed the step-2 hints; launch the game exe only
 REM when the wizard left the flag (single-line if on purpose: no block parsing).
-if exist auto-launch.flag start "" steam://rungameid/2877160
+REM launch-game.js resolves the exe from runtime-config.json and prints errors.
+if exist auto-launch.flag node launch-game.js
 
 node index.js
 

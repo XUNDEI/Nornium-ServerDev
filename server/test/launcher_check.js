@@ -277,5 +277,26 @@ section('mod 删除');
   check(info.enabled_order.includes('m-one'), '其余 mod 的启用状态不受影响');
 })();
 
+// ══════════════════════════ 8. launchGame：exe 缺失时给人话错误 ══════════════════════════
+
+// 子进程跑 launch-game.js：本文件的假 exe 是文本文件，不能在主进程里真拉起。
+section('launchGame 缺 exe 报错');
+
+(() => {
+  const emptyRoot = path.join(tmp, 'empty-game');
+  fs.mkdirSync(emptyRoot, { recursive: true });
+  try {
+    execFileSync(process.execPath, [path.join(__dirname, '..', 'launch-game.js')], {
+      env: { ...process.env, GHS_GAME_ROOT: emptyRoot },
+      encoding: 'utf8',
+    });
+    check(false, 'exe 缺失时 launch-game.js 应以非零码退出');
+  } catch (err) {
+    check(err.status === 1, `launch-game.js 退出码 1（实际 ${err.status}）`);
+    check(/游戏主程序不存在/.test(`${err.stdout}${err.stderr}`),
+      '错误信息指明缺失的 exe 路径');
+  }
+})();
+
 console.log(failures === 0 ? '\nLAUNCHER CHECKS PASSED' : `\n${failures} LAUNCHER CHECKS FAILED`);
 process.exit(failures === 0 ? 0 : 1);

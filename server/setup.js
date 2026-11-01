@@ -29,7 +29,6 @@ const HTTP_PORT = 9089;
 const CHANNEL = 'local_dev';
 const CLIENT_VERSION = '1.0.1';
 const CHANNEL_CODE = 'cb4_alpha_3_steam';
-const STEAM_APP_ID = '2877160';
 // 游戏主程序相对安装根目录的路径，用来判定用户给的路径对不对
 const GAME_EXE_REL = path.join('Binaries', 'Win64', 'GHS-Win64-Shipping.exe');
 
@@ -692,13 +691,15 @@ async function main() {
   // 有配置就沿用上次的选择；没有配置时默认开启（搭配 --yes 用于无人值守）。
   let autoLaunch = cfg ? Boolean(cfg.auto_launch) : true;
   if (!ASSUME_YES && !cfg) {
-    const ans = (await ask('    服务端起来后自动用 Steam 拉起游戏吗？回车=是，输入 n 取消 > '))
+    const ans = (await ask('    服务端起来后自动启动游戏吗？（直接运行游戏主程序，无需 Steam）回车=是，输入 n 取消 > '))
       .toLowerCase();
     autoLaunch = !ans || ans === 'y' || ans === 'yes';
   }
   if (!QUIET) console.log(`    ${autoLaunch ? '已开启' : '未开启'}自动拉起`);
   if (autoLaunch) {
-    fs.writeFileSync(AUTO_LAUNCH_FLAG, `steam://rungameid/${STEAM_APP_ID}\n`, 'utf8');
+    // flag 内容是游戏主程序的绝对路径（信息用途）；bat 只判断它存不存在，
+    // 真正的启动由 launch-game.js 按 runtime-config.json 现场解析。
+    fs.writeFileSync(AUTO_LAUNCH_FLAG, `${path.join(gamePath, GAME_EXE_REL)}\n`, 'utf8');
     if (!QUIET) console.log(`    （不想用了就删掉 ${path.relative(REPO_ROOT, AUTO_LAUNCH_FLAG)}）`);
   } else if (fs.existsSync(AUTO_LAUNCH_FLAG)) {
     fs.rmSync(AUTO_LAUNCH_FLAG, { force: true });
@@ -726,13 +727,13 @@ async function main() {
     console.log('---- 第 2 步：启动服务端 ----');
     if (QUIET) {
       console.log(autoLaunch
-        ? ' 稍后会用 Steam 拉起游戏（服务端同时启动）｜停止服务端：输入 stop 回车（或 Ctrl+C）'
-        : ' 请手动在 Steam 里启动《失乐星图》｜停止服务端：输入 stop 回车（或 Ctrl+C）');
+        ? ' 稍后会启动游戏（服务端同时启动）｜停止服务端：输入 stop 回车（或 Ctrl+C）'
+        : ' 请手动启动《失乐星图》（直接运行游戏主程序即可）｜停止服务端：输入 stop 回车（或 Ctrl+C）');
       console.log(' 游戏登录界面随便填账号和密码，点「注册」进主城 ｜ 存档在 server\\data\\');
     } else {
       console.log(autoLaunch
-        ? ' 接下来会用 Steam 拉起游戏（服务端同时启动），稍等几秒即可看到游戏窗口。'
-        : ' 请在 Steam 里手动启动《失乐星图》。');
+        ? ' 接下来会启动游戏（服务端同时启动），稍等几秒即可看到游戏窗口。'
+        : ' 请手动启动《失乐星图》（直接运行游戏主程序即可）。');
       console.log(' 游戏登录界面随便填账号和密码，点「注册」就能进主城。');
       console.log(' 停止服务请在本窗口输入 stop 回车（或按 Ctrl+C）。');
       console.log(' 存档在 server\\data\\，删掉它就能重置；');

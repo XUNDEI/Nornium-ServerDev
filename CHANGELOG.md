@@ -3,6 +3,23 @@
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 与
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式。
 
+## [0.3.1] - 2026-11-01
+
+#### Changed
+
+- **启动方式改为直接运行游戏 exe（废弃 `steam://` 拉起）**：游戏已从 Steam 下架、无法再入库，
+  但实测客户端拿不到 Steam 授权时会自动降级 **NULL 模式**继续运行（REVERSE_ENGINEERING 坑 13
+  随之改写：旧结论「直接运行 exe 会因 Steamworks 检查退出」只在游戏仍在库内、授权可用时成立）。
+  全部启动入口不再走 `steam://rungameid/2877160`：`src/mods.js` 的 `launchGame()` 改为 detached
+  spawn 游戏主程序（exe 缺失给人话错误；spawn 失败兜住 `error` 事件，不再可能打崩服务端）；
+  新增 `server/launch-game.js` CLI（供 bat 与手动 `node launch-game.js` 使用）；`点我启动.bat`
+  在 `auto-launch.flag` 存在时执行 `node launch-game.js`（flag 内容改为游戏主程序绝对路径，
+  仍只作存在性开关）；setup.js 向导提问与完成提示、编辑器「启动与状态」页的按钮/提示/toast
+  同步改为「直接运行 exe、无需 Steam」口径，登录渠道仍为 `local_dev` 不受影响。
+  测试：`test/setup_check.js`（bat 断言改为 `node launch-game.js` 并断言不再含 `steam://`、
+  向导提示文案断言）、`test/editor_ui_check.js`（启动按钮文案）、`test/launcher_check.js`
+  （新增 launchGame 缺 exe 报错段：子进程跑 launch-game.js，断言退出码 1 与错误文案）。
+
 ## [0.3.0] - 2026-10-07
 
 ### 追加更新（2026-10-07）

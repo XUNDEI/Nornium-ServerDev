@@ -126,8 +126,10 @@ const isWin = process.platform === 'win32';
     check(/node index\.js/.test(text), 'the launcher still starts the server');
     check(/where node/.test(text) && /Node\.js not found/.test(text),
       'the launcher still guards against a missing Node.js (in ASCII)');
-    check(/auto-launch\.flag/.test(text) && /steam:\/\/rungameid\/2877160/.test(text),
+    check(/auto-launch\.flag/.test(text) && /node launch-game\.js/.test(text),
       'the launcher still auto-launches the game via the flag');
+    check(!/steam:\/\//.test(text),
+      'the launcher no longer references steam:// (the exe runs directly, NULL mode)');
     // 中文横幅/提示的归属：Node 侧必须有，"点我启动.bat" 里没有
     const setupSrc = fs.readFileSync(path.join(SERVER_DIR, 'setup.js'), 'utf8');
     const indexSrc = fs.readFileSync(path.join(SERVER_DIR, 'index.js'), 'utf8');
@@ -135,7 +137,7 @@ const isWin = process.platform === 'win32';
     check(/第 2 步：启动服务端/.test(setupSrc), 'setup.js prints the step-2 banner');
     check(/FROM_BAT/.test(setupSrc), 'setup.js knows it was started from the launcher');
     check(/服务端已停止/.test(indexSrc), 'index.js prints the "server stopped" notice');
-    check(/接下来会用 Steam 拉起游戏/.test(setupSrc),
+    check(/接下来会启动游戏/.test(setupSrc),
       'the auto-launch hint lives in setup.js');
   }
 }

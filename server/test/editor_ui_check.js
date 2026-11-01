@@ -467,8 +467,8 @@ const tick = async (n = 1) => { for (let i = 0; i < n; i += 1) await new Promise
       '切到游戏启动器：只有启动器导航可见');
     check(byId('accountsBlock').hidden === true, '游戏启动器区不显示存档列表');
     const launch = contentHtml();
-    check(/经 Steam 启动游戏/.test(launch) && /游戏目录/.test(launch),
-      '启动页渲染出 Steam 启动按钮与游戏目录卡片');
+    check(/启动游戏/.test(launch) && /游戏目录/.test(launch),
+      '启动页渲染出启动按钮与游戏目录卡片');
     check(/D:\/x\/Nornium/.test(launch) && /GHSMods_P\.pak/.test(launch),
       '启动页显示游戏根目录与补丁 pak 安装状态');
     tabEls.find((t) => t.dataset.tab === 'mods').fn();

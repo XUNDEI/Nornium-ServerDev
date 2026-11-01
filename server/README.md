@@ -33,7 +33,8 @@ npm start
 | `--reset` | 忽略缓存的 `runtime-config.json`，重新配置 |
 
 向导产物：`runtime-config.json`（路径缓存）与 `auto-launch.flag`
-（存在则 `.bat` 会用 `steam://rungameid/2877160` 自动拉起游戏），两者都已 gitignore。
+（存在则 `.bat` 起服务端前会经 `launch-game.js` 直接运行游戏主程序——游戏拿不到 Steam
+授权时客户端自动降级 NULL 模式，见 REVERSE_ENGINEERING.md 坑 13），两者都已 gitignore。
 
 ## 控制台指令
 
@@ -58,7 +59,8 @@ stdin 直通；`npm start` 也可以）。实现见 `src/console.js`：
 - **HTTP 127.0.0.1:9089** —— 登录门（`/client/system/serverStatus`、公告、走马灯、上报）
 
 客户端需在 `%LOCALAPPDATA%\Nornium\Saved\channel.lua` 写入
-`return {"local_dev", 8101, "127.0.0.1", "9089"}`，并从 Steam 启动游戏。
+`return {"local_dev", 8101, "127.0.0.1", "9089"}`，然后启动游戏（直接运行游戏主程序即可，
+无需 Steam）。
 这一步已由首启向导 `setup.js` 自动完成（见上文）。
 
 ## 脚本
@@ -90,6 +92,7 @@ server/
   index.js                 入口：HTTP 门 + TCP 服务
   setup.js                 首次启动向导：定位游戏目录 + 写客户端 channel/version.lua
   preflight.js             加密/协议预检
+  launch-game.js           直接启动游戏主程序（bat 自动拉起与手动 node 都用它）
   src/
     logger.js              日志（console + logs/server.log，GHS_VERBOSE=1 开启收发明细）
     console.js             控制台指令：restore / load / stop / status / help
@@ -106,7 +109,7 @@ server/
                            daily_check.js / universe_check.js / plot_check.js / newplayer_check.js
   data/                    运行时生成（accounts.json、players/），已 gitignore
   runtime-config.json      首启向导产物（gitignore）：缓存的游戏路径
-  auto-launch.flag         首启向导产物（gitignore）：存在则自动拉起 Steam 游戏
+  auto-launch.flag         首启向导产物（gitignore）：存在则自动启动游戏（内容=游戏主程序路径）
 ```
 
 ## 重置存档
